@@ -21,6 +21,7 @@ const bugStore = useBugStore()
 
 const errorMessage = ref('')
 const isSystemAdmin = computed(() => auth.user?.systemRole === 'SYSTEM_ADMIN')
+const onSettingsPage = computed(() => route.name === 'workspace-settings')
 
 onMounted(() => {
   if (workspaceStore.workspaces.length === 0) {
@@ -52,6 +53,10 @@ async function handleWorkspaceChange(value: number): Promise<void> {
   } catch {
     errorMessage.value = '切换工作空间失败，请稍后重试'
   }
+}
+
+function goToList(): void {
+  void router.push({ name: 'bug-list', params: { workspaceId: workspaceStore.currentWorkspaceId } })
 }
 
 async function handleLogout(): Promise<void> {
@@ -86,13 +91,14 @@ async function handleLogout(): Promise<void> {
           </el-option>
         </el-select>
         <el-button
-          v-if="route.name !== 'workspace-settings'"
+          v-if="!onSettingsPage"
           link
           type="primary"
           @click="router.push({ name: 'workspace-settings', params: { workspaceId: workspaceStore.currentWorkspaceId } })"
         >
           工作空间设置
         </el-button>
+        <el-button v-else link type="primary" @click="goToList">返回 Bug 列表</el-button>
       </div>
 
       <div class="workspace-layout__account">
