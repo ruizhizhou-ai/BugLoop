@@ -38,7 +38,8 @@ import 'element-plus/es/components/table/style/css'
 import 'element-plus/es/components/table-column/style/css'
 import 'element-plus/es/components/tag/style/css'
 import { MdEditor, MdPreview } from 'md-editor-v3'
-import 'md-editor-v3/lib/preview.css'
+// style.css 同时包含编辑器与预览样式；preview.css 不含编辑器样式，单独引入会导致弹窗内编辑器错乱。
+import 'md-editor-v3/lib/style.css'
 
 import { useBugStore } from './bugStore'
 import { BUG_PRIORITY_OPTIONS, PRIORITY_META, STATUS_META, formatDateTime, formatFileSize } from './bugMeta'
