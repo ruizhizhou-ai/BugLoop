@@ -20,10 +20,6 @@ function createMemoryStorage(): Storage {
   }
 }
 
-if (!globalThis.localStorage) {
-  Object.defineProperty(globalThis, 'localStorage', { value: createMemoryStorage(), writable: true })
-}
-
-if (!globalThis.sessionStorage) {
-  Object.defineProperty(globalThis, 'sessionStorage', { value: createMemoryStorage(), writable: true })
-}
+// Node 新版本可能提供不可直接使用的实验性 Storage；测试中始终替换为确定性的内存实现。
+Object.defineProperty(globalThis, 'localStorage', { value: createMemoryStorage(), writable: true })
+Object.defineProperty(globalThis, 'sessionStorage', { value: createMemoryStorage(), writable: true })

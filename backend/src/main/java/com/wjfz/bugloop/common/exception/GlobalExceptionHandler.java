@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -49,6 +50,18 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 处理 JSON 语法错误、枚举值越界等无法反序列化的请求，避免落入 500 未知异常。
+     *
+     * @param exception 请求体读取异常
+     * @return 参数错误响应
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMessageNotReadableException(
+            HttpMessageNotReadableException exception) {
+        return ResponseEntity.badRequest().body(ApiResponse.failure(40001, "请求参数格式不合法"));
+    }
+
+    /**
      * 把 Sa-Token 抛出的未登录异常转换为 Spec 定义的 40101，不向前端暴露会话实现细节。
      *
      * @param exception 未登录异常
@@ -73,4 +86,3 @@ public class GlobalExceptionHandler {
                 .body(ApiResponse.failure(50000, "系统内部异常，请稍后重试"));
     }
 }
-

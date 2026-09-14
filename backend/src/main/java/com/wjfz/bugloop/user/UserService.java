@@ -6,6 +6,8 @@ package com.wjfz.bugloop.user;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -39,6 +41,19 @@ public class UserService {
     public Optional<User> findByUsername(String username) {
         return Optional.ofNullable(userMapper.selectOne(Wrappers.<User>lambdaQuery()
                 .eq(User::getUsername, username)));
+    }
+
+    /**
+     * 批量查询用户，供成员列表等需要组合展示信息的业务使用。
+     *
+     * @param ids 用户主键集合
+     * @return 已存在的用户列表；空集合直接返回空列表
+     */
+    public List<User> findByIds(Collection<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return userMapper.selectBatchIds(ids);
     }
 
     /**
