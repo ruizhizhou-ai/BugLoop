@@ -1,0 +1,60 @@
+# 本文件为 BugLoop 提供本地 MySQL，并预留前后端容器化联调方式。
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: bugloop-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-bugloop}
+      MYSQL_USER: ${MYSQL_USERNAME:-bugloop}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-bugloop}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-bugloop_root}
+      TZ: Asia/Shanghai
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - bugloop-mysql-data:/var/lib/mysql
+    healthcheck:
+      # 只有 MySQL 真正接受连接后，后端容器才允许启动。
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+    container_name: bugloop-backend
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-bugloop}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:-bugloop}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-bugloop}
+      JWT_SECRET: ${JWT_SECRET:-replace-with-at-least-32-random-characters}
+      BUGLOOP_STORAGE_ROOT: /var/lib/bugloop/attachments
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data/attachments:/var/lib/bugloop/attachments
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/docker/frontend.Dockerfile
+    container_name: bugloop-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  bugloop-mysql-data:
+

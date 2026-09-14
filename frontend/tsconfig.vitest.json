@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.app.json",
+
+  // 测试配置只主动包含测试文件，被测试的应用源码会通过模块解析自动加入。
+  "include": ["src/**/__tests__/*", "env.d.ts"],
+  "exclude": [],
+
+  "compilerOptions": {
+    // Vitest 运行于 Node.js 和 JSDOM 组合环境，需要使用独立类型集合。
+    "lib": [],
+    "types": ["node", "jsdom"],
+
+    // 增量类型检查文件放入依赖目录，避免污染项目根目录。
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.vitest.tsbuildinfo"
+  }
+}

@@ -1,0 +1,26 @@
+// 本文件配置在 Node.js 环境执行的 Vite、Vitest 和 ESLint 等工具代码。
+{
+  "extends": "@tsconfig/node24/tsconfig.json",
+  "include": [
+    "vite.config.*",
+    "vitest.config.*",
+    "cypress.config.*",
+    "playwright.config.*",
+    "eslint.config.*"
+  ],
+  "compilerOptions": {
+    // 工具链主要通过转译执行，Bundler 解析模式与 Vite 行为更一致。
+    "module": "preserve",
+    "moduleResolution": "bundler",
+
+    // 仅引入 Node.js 类型，避免无关的 @types 包污染工具配置。
+    "types": ["node"],
+
+    // vue-tsc 只负责类型检查，不生成 JavaScript 文件。
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+
+    // 增量类型检查文件放入依赖目录，避免污染项目根目录。
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo"
+  }
+}

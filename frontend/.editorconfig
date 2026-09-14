@@ -1,0 +1,9 @@
+# 本文件为前端源码补充最大行宽等格式规则，并继承根目录的通用约定。
+[*.{js,jsx,mjs,cjs,ts,tsx,mts,cts,vue,css,scss,sass,less,styl}]
+charset = utf-8
+indent_size = 2
+indent_style = space
+insert_final_newline = true
+trim_trailing_whitespace = true
+end_of_line = lf
+max_line_length = 100

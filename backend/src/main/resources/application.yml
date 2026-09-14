@@ -1,0 +1,32 @@
+# 本文件保存所有环境共用的后端配置，数据库密码等敏感信息由具体环境注入。
+spring:
+  application:
+    name: bugloop
+  profiles:
+    default: local
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+
+server:
+  port: ${SERVER_PORT:8080}
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  mapper-locations: classpath*:/mapper/**/*.xml
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+bugloop:
+  storage:
+    root: ${BUGLOOP_STORAGE_ROOT:../data/attachments}
+
