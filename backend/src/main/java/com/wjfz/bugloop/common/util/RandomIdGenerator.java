@@ -2,7 +2,7 @@
  * 本文件为对外暴露为数字的业务主键生成随机 ID，确保 User 和 Workspace 的 ID 不可按创建顺序推测。
  * 生成范围限制在 JavaScript 安全整数以内，使前端以 number 接收时不会丢失精度。
  */
-package com.wjfz.bugloop.common.id;
+package com.wjfz.bugloop.common.util;
 
 import java.security.SecureRandom;
 

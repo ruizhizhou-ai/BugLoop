@@ -6,7 +6,7 @@ package com.wjfz.bugloop.auth.controller;
 import cn.dev33.satoken.secure.BCrypt;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.jayway.jsonpath.JsonPath;
-import com.wjfz.bugloop.common.id.RandomIdGenerator;
+import com.wjfz.bugloop.common.util.RandomIdGenerator;
 import com.wjfz.bugloop.user.entity.User;
 import com.wjfz.bugloop.user.mapper.UserMapper;
 import org.junit.jupiter.api.BeforeEach;

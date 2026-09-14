@@ -13,6 +13,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * 全局 REST 异常处理器，负责把 Java 异常转换为符合 API Spec 的响应。
@@ -59,6 +60,16 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleMessageNotReadableException(
             HttpMessageNotReadableException exception) {
         return ResponseEntity.badRequest().body(ApiResponse.failure(40001, "请求参数格式不合法"));
+    }
+
+    /**
+     * 将路径和查询参数转换失败映射为参数错误，避免非法 Bug 主键触发系统异常提示。
+     * @param exception 参数类型转换异常
+     * @return 统一参数错误响应
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleTypeMismatch(MethodArgumentTypeMismatchException exception) {
+        return ResponseEntity.badRequest().body(ApiResponse.failure(40001, "路径或查询参数格式不合法"));
     }
 
     /**
