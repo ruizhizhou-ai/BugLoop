@@ -12,6 +12,7 @@ vi.mock('../workspaceApi', () => ({
   addWorkspaceMember: vi.fn<typeof workspaceApi.addWorkspaceMember>(),
   createWorkspace: vi.fn<typeof workspaceApi.createWorkspace>(),
   disableWorkspace: vi.fn<typeof workspaceApi.disableWorkspace>(),
+  enableWorkspace: vi.fn<typeof workspaceApi.enableWorkspace>(),
   fetchMyWorkspaces: vi.fn<typeof workspaceApi.fetchMyWorkspaces>(),
   fetchWorkspace: vi.fn<typeof workspaceApi.fetchWorkspace>(),
   fetchWorkspaceMembers: vi.fn<typeof workspaceApi.fetchWorkspaceMembers>(),
@@ -94,5 +95,23 @@ describe('workspaceStore', () => {
     expect(store.currentWorkspace).toBeNull()
     expect(store.members).toEqual([])
     expect(localStorage.getItem('bugloop.currentWorkspaceId')).toBeNull()
+  })
+
+  it('应停用并重新启用当前工作空间且保留选择', async () => {
+    const disabledWorkspace: Workspace = { ...FIRST_WORKSPACE, status: 'DISABLED' }
+    vi.mocked(workspaceApi.disableWorkspace).mockResolvedValue(disabledWorkspace)
+    vi.mocked(workspaceApi.enableWorkspace).mockResolvedValue(FIRST_WORKSPACE)
+    vi.mocked(workspaceApi.createWorkspace).mockResolvedValue(FIRST_WORKSPACE)
+    vi.mocked(workspaceApi.fetchWorkspace).mockResolvedValue(FIRST_WORKSPACE)
+    vi.mocked(workspaceApi.fetchWorkspaceMembers).mockResolvedValue([])
+
+    const store = useWorkspaceStore()
+    await store.create({ name: '研发中心', description: '研发空间' })
+    await store.disable()
+    expect(store.currentWorkspace?.status).toBe('DISABLED')
+
+    await store.enable()
+    expect(store.currentWorkspace?.status).toBe('ENABLED')
+    expect(store.currentWorkspaceId).toBe(1)
   })
 })

@@ -69,6 +69,11 @@ const canEditWorkspace = canManageMembers
 const canDisableWorkspace = computed(
   () => workspaceStore.isEnabled && (isSystemAdmin.value || currentRole.value === 'OWNER'),
 )
+const canEnableWorkspace = computed(
+  () =>
+    workspaceStore.currentWorkspace?.status === 'DISABLED' &&
+    (isSystemAdmin.value || currentRole.value === 'OWNER'),
+)
 
 onMounted(async () => {
   await runAction(() => workspaceStore.loadWorkspaces())
@@ -158,6 +163,11 @@ async function handleRemoveMember(userId: number): Promise<void> {
 /** 停用工作空间，停用后页面保留详情和成员只读能力。 */
 async function handleDisableWorkspace(): Promise<void> {
   await runAction(() => workspaceStore.disable())
+}
+
+/** 重新启用工作空间并立即恢复当前页面的管理入口。 */
+async function handleEnableWorkspace(): Promise<void> {
+  await runAction(() => workspaceStore.enable())
 }
 
 /** 把角色枚举转换为界面中文。 */
@@ -269,6 +279,14 @@ async function runAction(action: () => Promise<void>): Promise<boolean> {
                     <el-button type="danger" plain>停用工作空间</el-button>
                   </template>
                 </el-popconfirm>
+                <el-button
+                  v-if="canEnableWorkspace"
+                  type="success"
+                  :loading="submitting"
+                  @click="handleEnableWorkspace"
+                >
+                  重新启用
+                </el-button>
               </div>
             </div>
           </template>

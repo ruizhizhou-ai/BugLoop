@@ -1,5 +1,5 @@
 /**
- * 本文件实现工作空间、成员、角色、切换读取与停用流程，并在同一事务内记录审计日志。
+ * 本文件实现工作空间、成员、角色、切换与启停流程，并在同一事务内记录审计日志。
  */
 package com.wjfz.bugloop.workspace;
 
@@ -287,6 +287,28 @@ public class WorkspaceService {
         workspaceMapper.updateById(workspace);
         writeLog(workspaceId, access.currentUser().getId(), "DISABLE_WORKSPACE", "status",
                 WorkspaceStatus.ENABLED.name(), WorkspaceStatus.DISABLED.name(), "停用工作空间");
+        return WorkspaceVO.from(workspace, access.currentRole());
+    }
+
+    /**
+     * 重新启用已停用的工作空间，恢复成员变更和后续 Bug 写入能力。
+     * 原成员及业务数据不做重建，状态切换和审计日志在同一事务中提交。
+     *
+     * @param workspaceId 工作空间主键
+     * @return 重新启用后的工作空间
+     */
+    @Transactional
+    public WorkspaceVO enable(Long workspaceId) {
+        WorkspaceAccess access = accessService.requireOwnerForStatusChange(workspaceId);
+        Workspace workspace = access.workspace();
+        if (workspace.getStatus() == WorkspaceStatus.ENABLED) {
+            throw new BusinessException(HttpStatus.CONFLICT, 40901, "工作空间已启用，无需重复启用");
+        }
+
+        workspace.setStatus(WorkspaceStatus.ENABLED);
+        workspaceMapper.updateById(workspace);
+        writeLog(workspaceId, access.currentUser().getId(), "ENABLE_WORKSPACE", "status",
+                WorkspaceStatus.DISABLED.name(), WorkspaceStatus.ENABLED.name(), "重新启用工作空间");
         return WorkspaceVO.from(workspace, access.currentRole());
     }
 

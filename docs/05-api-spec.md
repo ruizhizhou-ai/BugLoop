@@ -314,6 +314,23 @@ POST /api/workspaces/{workspaceId}/disable
 
 只允许 OWNER 或 SYSTEM_ADMIN。
 
+### 47.10 重新启用工作空间
+
+```Plain
+POST /api/workspaces/{workspaceId}/enable
+```
+
+只允许 OWNER 或 SYSTEM_ADMIN。
+
+仅允许：
+
+```Plain
+DISABLED → ENABLED
+```
+
+重新启用后保留原成员、Bug 和历史数据，并写入 `workspace_operation_log`。
+工作空间已经处于 `ENABLED` 状态时返回 `40901`。
+
 ---
 
 ## 四十八、Bug API Spec

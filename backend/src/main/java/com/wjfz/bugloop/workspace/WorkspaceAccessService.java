@@ -71,6 +71,27 @@ public class WorkspaceAccessService {
     public WorkspaceAccess requireOwnerForUpdate(Long workspaceId) {
         Workspace workspace = lockWorkspace(workspaceId);
         ensureEnabled(workspace);
+        return requireOwnerOrSystemAdmin(workspace);
+    }
+
+    /**
+     * 在事务内锁定工作空间并校验 OWNER 权限，但不限制当前启停状态。
+     * 该入口只用于启停状态切换，使重新启用能够访问 DISABLED 空间，同时保持角色边界不变。
+     *
+     * @param workspaceId 工作空间主键
+     * @return 已完成权限校验的访问上下文
+     */
+    public WorkspaceAccess requireOwnerForStatusChange(Long workspaceId) {
+        return requireOwnerOrSystemAdmin(lockWorkspace(workspaceId));
+    }
+
+    /**
+     * 校验当前用户是 OWNER 或 SYSTEM_ADMIN，不附加启停状态条件。
+     *
+     * @param workspace 已锁定的工作空间
+     * @return 已完成权限校验的访问上下文
+     */
+    private WorkspaceAccess requireOwnerOrSystemAdmin(Workspace workspace) {
         User user = currentUser();
         WorkspaceAccess access = requireMembershipOrSystemAdmin(workspace, user);
         if (!isSystemAdmin(user)

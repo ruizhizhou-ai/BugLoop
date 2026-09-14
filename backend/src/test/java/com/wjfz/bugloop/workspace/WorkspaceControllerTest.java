@@ -171,11 +171,14 @@ class WorkspaceControllerTest {
     }
 
     @Test
-    void 停用后应保留读取能力并拒绝全部成员变更() throws Exception {
-        register("system_admin");
+    void 停用后应只读且授权角色可重新启用并恢复成员变更() throws Exception {
+        Session systemAdmin = register("system_admin");
         Session owner = register("owner");
-        Session member = register("member");
+        Session admin = register("admin");
+        Session newMember = register("new_member");
         long workspaceId = createWorkspace(owner.token(), "待停用空间");
+        addMember(owner.token(), workspaceId, admin.userId(), "ADMIN")
+                .andExpect(status().isOk());
 
         mockMvc.perform(post("/api/workspaces/{id}/disable", workspaceId)
                         .header("Authorization", bearer(owner.token())))
@@ -187,7 +190,7 @@ class WorkspaceControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("DISABLED"));
 
-        addMember(owner.token(), workspaceId, member.userId(), "MEMBER")
+        addMember(owner.token(), workspaceId, newMember.userId(), "MEMBER")
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value(40901));
 
@@ -195,6 +198,24 @@ class WorkspaceControllerTest {
                         .header("Authorization", bearer(owner.token()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"不可修改\",\"description\":null}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(40901));
+
+        mockMvc.perform(post("/api/workspaces/{id}/enable", workspaceId)
+                        .header("Authorization", bearer(admin.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(40301));
+
+        mockMvc.perform(post("/api/workspaces/{id}/enable", workspaceId)
+                        .header("Authorization", bearer(systemAdmin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("ENABLED"));
+
+        addMember(owner.token(), workspaceId, newMember.userId(), "MEMBER")
+                .andExpect(status().isOk());
+
+        mockMvc.perform(post("/api/workspaces/{id}/enable", workspaceId)
+                        .header("Authorization", bearer(owner.token())))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value(40901));
     }

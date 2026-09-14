@@ -1,5 +1,5 @@
 /**
- * 本文件在真实 MySQL 上验证工作空间创建、成员加入、角色变更和停用的完整链路。
+ * 本文件在真实 MySQL 上验证工作空间创建、成员加入、角色变更和启停的完整链路。
  */
 package com.wjfz.bugloop;
 
@@ -81,12 +81,17 @@ class WorkspaceFlowIT extends AbstractMysqlIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("DISABLED"));
 
+        mockMvc.perform(post("/api/workspaces/{id}/enable", workspaceId)
+                        .header("Authorization", bearer(owner.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("ENABLED"));
+
         Integer memberCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM workspace_member WHERE workspace_id = ?", Integer.class, workspaceId);
         Integer logCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM workspace_operation_log WHERE workspace_id = ?", Integer.class, workspaceId);
         assertThat(memberCount).isEqualTo(2);
-        assertThat(logCount).isEqualTo(4);
+        assertThat(logCount).isEqualTo(5);
     }
 
     private Session register(String username) throws Exception {

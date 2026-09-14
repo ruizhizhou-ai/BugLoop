@@ -244,6 +244,12 @@ GET /api/workspaces/{id}
 PUT /api/workspaces/{id}
 修改工作空间
 
+POST /api/workspaces/{id}/disable
+停用工作空间
+
+POST /api/workspaces/{id}/enable
+重新启用工作空间
+
 GET /api/workspaces/{id}/members
 工作空间成员列表
 

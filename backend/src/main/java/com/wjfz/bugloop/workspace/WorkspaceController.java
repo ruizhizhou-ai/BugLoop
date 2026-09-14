@@ -1,5 +1,5 @@
 /**
- * 本文件暴露 Workspace API Spec 定义的工作空间、成员、角色和停用接口。
+ * 本文件暴露 Workspace API Spec 定义的工作空间、成员、角色和启停接口。
  */
 package com.wjfz.bugloop.workspace;
 
@@ -142,5 +142,16 @@ public class WorkspaceController {
     @PostMapping("/{workspaceId}/disable")
     public ApiResponse<WorkspaceVO> disable(@PathVariable Long workspaceId) {
         return ApiResponse.success(workspaceService.disable(workspaceId));
+    }
+
+    /**
+     * 重新启用已停用的工作空间并恢复业务写入能力。
+     *
+     * @param workspaceId 工作空间主键
+     * @return 重新启用后的工作空间
+     */
+    @PostMapping("/{workspaceId}/enable")
+    public ApiResponse<WorkspaceVO> enable(@PathVariable Long workspaceId) {
+        return ApiResponse.success(workspaceService.enable(workspaceId));
     }
 }

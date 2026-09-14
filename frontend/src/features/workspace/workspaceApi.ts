@@ -89,3 +89,8 @@ export function removeWorkspaceMember(workspaceId: number, userId: number): Prom
 export function disableWorkspace(workspaceId: number): Promise<Workspace> {
   return http.post<unknown, Workspace>(`/workspaces/${workspaceId}/disable`)
 }
+
+/** 重新启用工作空间并恢复业务写入能力。 */
+export function enableWorkspace(workspaceId: number): Promise<Workspace> {
+  return http.post<unknown, Workspace>(`/workspaces/${workspaceId}/enable`)
+}

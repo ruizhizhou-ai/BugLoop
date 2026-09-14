@@ -7,16 +7,24 @@ import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
+/**
+ * 构建与单元测试共用的 Vue 插件和路径别名。
+ * 独立导出普通对象，避免 Vitest 合并动态配置回调时启动失败。
+ */
+export const sharedViteConfig = {
+  plugins: [vue(), vueDevTools()],
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
 
   return {
-    plugins: [vue(), vueDevTools()],
-    resolve: {
-      alias: {
-        '@': fileURLToPath(new URL('./src', import.meta.url)),
-      },
-    },
+    ...sharedViteConfig,
     server: {
       port: 5173,
       proxy: {

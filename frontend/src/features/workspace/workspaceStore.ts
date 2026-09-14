@@ -8,6 +8,7 @@ import {
   addWorkspaceMember,
   createWorkspace,
   disableWorkspace,
+  enableWorkspace,
   fetchMyWorkspaces,
   fetchWorkspace,
   fetchWorkspaceMembers,
@@ -129,6 +130,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     replaceWorkspace(await disableWorkspace(currentWorkspace.value.id))
   }
 
+  /** 重新启用当前空间，并保留已经加载的成员与当前选择。 */
+  async function enable(): Promise<void> {
+    if (!currentWorkspace.value) {
+      return
+    }
+    replaceWorkspace(await enableWorkspace(currentWorkspace.value.id))
+  }
+
   /** 清空与当前账号相关的工作空间状态。 */
   function reset(): void {
     workspaces.value = []
@@ -163,6 +172,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     changeMemberRole,
     removeMember,
     disable,
+    enable,
     reset,
   }
 })

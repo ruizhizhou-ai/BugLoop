@@ -31,6 +31,7 @@ POST   /api/workspaces/{workspaceId}/members
 PUT    /api/workspaces/{workspaceId}/members/{userId}/role
 DELETE /api/workspaces/{workspaceId}/members/{userId}
 POST   /api/workspaces/{workspaceId}/disable
+POST   /api/workspaces/{workspaceId}/enable
 ```
 
 工作空间切换不在服务端保存隐式状态。前端从 `GET /api/workspaces` 选择空间后，使用
