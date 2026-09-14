@@ -1,13 +1,19 @@
 /**
  * 本文件集中实现工作空间边界、角色和启停状态校验，是后续所有 Workspace/Bug 数据访问的安全入口。
  */
-package com.wjfz.bugloop.workspace;
+package com.wjfz.bugloop.workspace.service;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wjfz.bugloop.common.exception.BusinessException;
-import com.wjfz.bugloop.user.User;
-import com.wjfz.bugloop.user.UserService;
+import com.wjfz.bugloop.user.entity.User;
+import com.wjfz.bugloop.user.service.UserService;
+import com.wjfz.bugloop.workspace.entity.Workspace;
+import com.wjfz.bugloop.workspace.entity.WorkspaceMember;
+import com.wjfz.bugloop.workspace.entity.WorkspaceRole;
+import com.wjfz.bugloop.workspace.entity.WorkspaceStatus;
+import com.wjfz.bugloop.workspace.mapper.WorkspaceMapper;
+import com.wjfz.bugloop.workspace.mapper.WorkspaceMemberMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 

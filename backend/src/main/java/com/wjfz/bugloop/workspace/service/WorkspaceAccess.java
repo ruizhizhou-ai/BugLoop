@@ -1,9 +1,12 @@
 /**
  * 本文件定义一次工作空间权限校验后的上下文，供工作空间与后续 Bug 服务复用校验结果。
  */
-package com.wjfz.bugloop.workspace;
+package com.wjfz.bugloop.workspace.service;
 
-import com.wjfz.bugloop.user.User;
+import com.wjfz.bugloop.user.entity.User;
+import com.wjfz.bugloop.workspace.entity.Workspace;
+import com.wjfz.bugloop.workspace.entity.WorkspaceMember;
+import com.wjfz.bugloop.workspace.entity.WorkspaceRole;
 
 /**
  * 工作空间访问上下文。

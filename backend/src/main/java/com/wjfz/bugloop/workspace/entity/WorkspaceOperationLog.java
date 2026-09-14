@@ -1,7 +1,7 @@
 /**
  * 本文件映射 workspace_operation_log 表，记录工作空间与成员变更的审计信息。
  */
-package com.wjfz.bugloop.workspace;
+package com.wjfz.bugloop.workspace.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;

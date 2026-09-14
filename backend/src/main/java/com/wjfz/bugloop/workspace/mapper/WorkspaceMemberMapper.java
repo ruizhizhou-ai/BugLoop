@@ -1,9 +1,10 @@
 /**
  * 本文件提供工作空间成员关系的数据访问和未关闭 Bug 关联检查能力。
  */
-package com.wjfz.bugloop.workspace;
+package com.wjfz.bugloop.workspace.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.wjfz.bugloop.workspace.entity.WorkspaceMember;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Select;
 

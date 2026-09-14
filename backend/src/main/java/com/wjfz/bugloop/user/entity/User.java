@@ -1,7 +1,7 @@
 /**
  * 本文件映射 sys_user 表，保存系统用户的账号、角色与启用状态。
  */
-package com.wjfz.bugloop.user;
+package com.wjfz.bugloop.user.entity;
 
 import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.IdType;

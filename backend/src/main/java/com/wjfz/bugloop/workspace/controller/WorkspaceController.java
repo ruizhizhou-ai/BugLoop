@@ -1,13 +1,16 @@
 /**
  * 本文件暴露 Workspace API Spec 定义的工作空间、成员、角色和启停接口。
  */
-package com.wjfz.bugloop.workspace;
+package com.wjfz.bugloop.workspace.controller;
 
 import com.wjfz.bugloop.common.api.ApiResponse;
 import com.wjfz.bugloop.workspace.dto.AddWorkspaceMemberRequest;
 import com.wjfz.bugloop.workspace.dto.CreateWorkspaceRequest;
 import com.wjfz.bugloop.workspace.dto.UpdateWorkspaceMemberRoleRequest;
 import com.wjfz.bugloop.workspace.dto.UpdateWorkspaceRequest;
+import com.wjfz.bugloop.workspace.service.WorkspaceService;
+import com.wjfz.bugloop.workspace.vo.WorkspaceMemberVO;
+import com.wjfz.bugloop.workspace.vo.WorkspaceVO;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;

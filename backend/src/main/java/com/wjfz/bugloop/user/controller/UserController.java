@@ -1,11 +1,14 @@
 /**
  * 本文件暴露当前登录用户信息接口。
  */
-package com.wjfz.bugloop.user;
+package com.wjfz.bugloop.user.controller;
 
 import cn.dev33.satoken.stp.StpUtil;
 import com.wjfz.bugloop.common.api.ApiResponse;
 import com.wjfz.bugloop.common.exception.BusinessException;
+import com.wjfz.bugloop.user.entity.User;
+import com.wjfz.bugloop.user.service.UserService;
+import com.wjfz.bugloop.user.vo.UserVO;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;

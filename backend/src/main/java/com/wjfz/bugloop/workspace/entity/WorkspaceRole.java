@@ -1,7 +1,7 @@
 /**
  * 本文件定义工作空间固定角色，作为成员管理和权限判断的统一取值来源。
  */
-package com.wjfz.bugloop.workspace;
+package com.wjfz.bugloop.workspace.entity;
 
 /**
  * 工作空间角色，一期不支持自定义角色。

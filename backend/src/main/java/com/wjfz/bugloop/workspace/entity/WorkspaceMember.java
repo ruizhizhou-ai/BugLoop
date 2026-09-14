@@ -1,7 +1,7 @@
 /**
  * 本文件映射 workspace_member 表，维护用户与工作空间之间唯一的成员和角色关系。
  */
-package com.wjfz.bugloop.workspace;
+package com.wjfz.bugloop.workspace.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;

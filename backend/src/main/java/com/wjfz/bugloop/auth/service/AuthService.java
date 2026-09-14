@@ -1,18 +1,18 @@
 /**
  * 本文件实现注册、登录和登出业务，是登录会话的唯一入口。
  */
-package com.wjfz.bugloop.auth;
+package com.wjfz.bugloop.auth.service;
 
 import cn.dev33.satoken.secure.BCrypt;
 import cn.dev33.satoken.stp.StpUtil;
 import com.wjfz.bugloop.auth.dto.LoginRequest;
-import com.wjfz.bugloop.auth.dto.LoginResponse;
 import com.wjfz.bugloop.auth.dto.RegisterRequest;
+import com.wjfz.bugloop.auth.vo.LoginResponse;
 import com.wjfz.bugloop.common.exception.BusinessException;
 import com.wjfz.bugloop.config.AdminBootstrapProperties;
-import com.wjfz.bugloop.user.User;
-import com.wjfz.bugloop.user.UserService;
-import com.wjfz.bugloop.user.UserVO;
+import com.wjfz.bugloop.user.entity.User;
+import com.wjfz.bugloop.user.service.UserService;
+import com.wjfz.bugloop.user.vo.UserVO;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;

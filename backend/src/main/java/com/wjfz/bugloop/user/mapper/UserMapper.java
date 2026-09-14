@@ -1,9 +1,10 @@
 /**
  * 本文件提供 sys_user 表的数据访问入口。
  */
-package com.wjfz.bugloop.user;
+package com.wjfz.bugloop.user.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.wjfz.bugloop.user.entity.User;
 import org.apache.ibatis.annotations.Mapper;
 
 /**

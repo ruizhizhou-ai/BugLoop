@@ -1,7 +1,11 @@
 /**
  * 本文件定义工作空间对外响应，附带当前用户角色以支持前端切换后的权限展示。
  */
-package com.wjfz.bugloop.workspace;
+package com.wjfz.bugloop.workspace.vo;
+
+import com.wjfz.bugloop.workspace.entity.Workspace;
+import com.wjfz.bugloop.workspace.entity.WorkspaceRole;
+import com.wjfz.bugloop.workspace.entity.WorkspaceStatus;
 
 import java.time.LocalDateTime;
 

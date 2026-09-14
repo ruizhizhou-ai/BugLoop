@@ -17,6 +17,21 @@ com.wjfz.bugloop
 
 状态机、权限和事务必须在 Service 层执行，Controller 不直接修改数据库，Entity 不直接作为 API 请求或响应对象。
 
+`workspace/` 模块采用以下分层，后续 `bug/` 等业务模块沿用同一约定：
+
+```text
+controller/     REST 控制器
+service/        业务服务、事务和权限校验
+mapper/         MyBatis 数据访问入口
+entity/         数据库实体和业务枚举
+dto/            请求参数对象
+vo/             接口响应对象
+```
+
+`auth/` 模块同样按 `controller / service / dto / vo` 分层；认证复用 `user/` 模块的用户实体与 Mapper，不重复维护账号持久化对象。
+
+`user/` 模块按 `controller / service / mapper / entity / vo` 分层；当前只有“读取当前用户”接口，没有独立请求参数，因此暂不创建空的 `dto/` 目录。
+
 ## Workspace 接口
 
 Milestone 2 已提供以下受登录保护的接口：

@@ -3,7 +3,7 @@
  */
 package com.wjfz.bugloop.workspace.dto;
 
-import com.wjfz.bugloop.workspace.WorkspaceRole;
+import com.wjfz.bugloop.workspace.entity.WorkspaceRole;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 

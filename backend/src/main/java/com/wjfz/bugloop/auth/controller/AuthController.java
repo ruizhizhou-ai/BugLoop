@@ -1,11 +1,12 @@
 /**
  * 本文件暴露注册、登录和登出接口。
  */
-package com.wjfz.bugloop.auth;
+package com.wjfz.bugloop.auth.controller;
 
 import com.wjfz.bugloop.auth.dto.LoginRequest;
-import com.wjfz.bugloop.auth.dto.LoginResponse;
 import com.wjfz.bugloop.auth.dto.RegisterRequest;
+import com.wjfz.bugloop.auth.service.AuthService;
+import com.wjfz.bugloop.auth.vo.LoginResponse;
 import com.wjfz.bugloop.common.api.ApiResponse;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PostMapping;

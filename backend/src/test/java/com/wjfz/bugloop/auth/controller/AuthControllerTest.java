@@ -1,13 +1,13 @@
 /**
  * 本文件覆盖注册、登录、鉴权和登出的主要成功与失败路径。
  */
-package com.wjfz.bugloop.auth;
+package com.wjfz.bugloop.auth.controller;
 
 import cn.dev33.satoken.secure.BCrypt;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.jayway.jsonpath.JsonPath;
-import com.wjfz.bugloop.user.User;
-import com.wjfz.bugloop.user.UserMapper;
+import com.wjfz.bugloop.user.entity.User;
+import com.wjfz.bugloop.user.mapper.UserMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

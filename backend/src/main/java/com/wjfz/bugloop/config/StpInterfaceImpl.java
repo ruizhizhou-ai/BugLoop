@@ -4,8 +4,8 @@
 package com.wjfz.bugloop.config;
 
 import cn.dev33.satoken.stp.StpInterface;
-import com.wjfz.bugloop.user.User;
-import com.wjfz.bugloop.user.UserService;
+import com.wjfz.bugloop.user.entity.User;
+import com.wjfz.bugloop.user.service.UserService;
 import org.springframework.stereotype.Component;
 
 import java.util.List;

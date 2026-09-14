@@ -1,16 +1,26 @@
 /**
  * 本文件实现工作空间、成员、角色、切换与启停流程，并在同一事务内记录审计日志。
  */
-package com.wjfz.bugloop.workspace;
+package com.wjfz.bugloop.workspace.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wjfz.bugloop.common.exception.BusinessException;
-import com.wjfz.bugloop.user.User;
-import com.wjfz.bugloop.user.UserService;
+import com.wjfz.bugloop.user.entity.User;
+import com.wjfz.bugloop.user.service.UserService;
 import com.wjfz.bugloop.workspace.dto.AddWorkspaceMemberRequest;
 import com.wjfz.bugloop.workspace.dto.CreateWorkspaceRequest;
 import com.wjfz.bugloop.workspace.dto.UpdateWorkspaceMemberRoleRequest;
 import com.wjfz.bugloop.workspace.dto.UpdateWorkspaceRequest;
+import com.wjfz.bugloop.workspace.entity.Workspace;
+import com.wjfz.bugloop.workspace.entity.WorkspaceMember;
+import com.wjfz.bugloop.workspace.entity.WorkspaceOperationLog;
+import com.wjfz.bugloop.workspace.entity.WorkspaceRole;
+import com.wjfz.bugloop.workspace.entity.WorkspaceStatus;
+import com.wjfz.bugloop.workspace.mapper.WorkspaceMapper;
+import com.wjfz.bugloop.workspace.mapper.WorkspaceMemberMapper;
+import com.wjfz.bugloop.workspace.mapper.WorkspaceOperationLogMapper;
+import com.wjfz.bugloop.workspace.vo.WorkspaceMemberVO;
+import com.wjfz.bugloop.workspace.vo.WorkspaceVO;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;

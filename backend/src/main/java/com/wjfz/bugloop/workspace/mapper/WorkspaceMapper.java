@@ -1,9 +1,10 @@
 /**
  * 本文件提供 workspace 表的数据访问入口，并提供成员变更所需的行级锁查询。
  */
-package com.wjfz.bugloop.workspace;
+package com.wjfz.bugloop.workspace.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.wjfz.bugloop.workspace.entity.Workspace;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Select;
 

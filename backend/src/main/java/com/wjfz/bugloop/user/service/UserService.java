@@ -1,9 +1,11 @@
 /**
  * 本文件提供系统用户的基础读取与写入能力，供认证和后续业务模块复用。
  */
-package com.wjfz.bugloop.user;
+package com.wjfz.bugloop.user.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.wjfz.bugloop.user.entity.User;
+import com.wjfz.bugloop.user.mapper.UserMapper;
 import org.springframework.stereotype.Service;
 
 import java.util.Collection;

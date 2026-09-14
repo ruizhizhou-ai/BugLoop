@@ -1,7 +1,7 @@
 /**
  * 本文件使用 H2 覆盖工作空间创建、切换、成员角色、隔离、停用和关键冲突规则。
  */
-package com.wjfz.bugloop.workspace;
+package com.wjfz.bugloop.workspace.controller;
 
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.BeforeEach;

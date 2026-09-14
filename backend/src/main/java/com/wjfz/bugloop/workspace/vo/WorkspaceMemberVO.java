@@ -1,9 +1,11 @@
 /**
  * 本文件定义工作空间成员列表响应，组合成员角色与系统用户展示信息。
  */
-package com.wjfz.bugloop.workspace;
+package com.wjfz.bugloop.workspace.vo;
 
-import com.wjfz.bugloop.user.User;
+import com.wjfz.bugloop.user.entity.User;
+import com.wjfz.bugloop.workspace.entity.WorkspaceMember;
+import com.wjfz.bugloop.workspace.entity.WorkspaceRole;
 
 import java.time.LocalDateTime;
 

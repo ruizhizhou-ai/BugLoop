@@ -1,7 +1,7 @@
 /**
  * 本文件映射 workspace 表，保存工作空间基础信息、负责人和启停状态。
  */
-package com.wjfz.bugloop.workspace;
+package com.wjfz.bugloop.workspace.entity;
 
 import com.baomidou.mybatisplus.annotation.FieldFill;
 import com.baomidou.mybatisplus.annotation.IdType;

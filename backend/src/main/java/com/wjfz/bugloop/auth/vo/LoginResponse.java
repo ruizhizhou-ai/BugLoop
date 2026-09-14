@@ -1,9 +1,9 @@
 /**
  * 本文件定义登录与注册成功后的返回内容。
  */
-package com.wjfz.bugloop.auth.dto;
+package com.wjfz.bugloop.auth.vo;
 
-import com.wjfz.bugloop.user.UserVO;
+import com.wjfz.bugloop.user.vo.UserVO;
 
 /**
  * 登录结果。

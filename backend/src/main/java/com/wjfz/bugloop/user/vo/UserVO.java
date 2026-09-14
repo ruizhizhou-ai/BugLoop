@@ -1,7 +1,9 @@
 /**
  * 本文件定义对外返回的用户信息，避免密码哈希等敏感字段进入响应。
  */
-package com.wjfz.bugloop.user;
+package com.wjfz.bugloop.user.vo;
+
+import com.wjfz.bugloop.user.entity.User;
 
 import java.time.LocalDateTime;
 
