@@ -131,6 +131,36 @@ class WorkspaceControllerTest {
     }
 
     @Test
+    void 成员管理者可搜索未加入空间的启用用户() throws Exception {
+        register("system_admin");
+        Session owner = register("owner");
+        Session joinedCandidate = register("candidate_joined");
+        Session availableCandidate = register("candidate_available");
+        Session disabledCandidate = register("candidate_disabled");
+        Session ordinaryMember = register("ordinary_member");
+        long workspaceId = createWorkspace(owner.token(), "用户选择空间");
+        addMember(owner.token(), workspaceId, joinedCandidate.userId(), "MEMBER")
+                .andExpect(status().isOk());
+        addMember(owner.token(), workspaceId, ordinaryMember.userId(), "MEMBER")
+                .andExpect(status().isOk());
+        jdbcTemplate.update("UPDATE sys_user SET enabled = 0 WHERE id = ?", disabledCandidate.userId());
+
+        mockMvc.perform(get("/api/workspaces/{id}/available-users", workspaceId)
+                        .queryParam("keyword", "candidate")
+                        .header("Authorization", bearer(owner.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].id").value(availableCandidate.userId()))
+                .andExpect(jsonPath("$.data[0].username").value("candidate_available"));
+
+        // 普通成员不能借由候选用户接口枚举系统用户。
+        mockMvc.perform(get("/api/workspaces/{id}/available-users", workspaceId)
+                        .header("Authorization", bearer(ordinaryMember.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(40301));
+    }
+
+    @Test
     void 非成员不能访问但SystemAdmin可以处理异常空间() throws Exception {
         Session systemAdmin = register("system_admin");
         Session owner = register("owner");

@@ -558,7 +558,7 @@ LocalDateTime
 
 | 字段 | 类型 | 约束 |
 |---|---|---|
-| id | BIGINT | PK, AUTO_INCREMENT |
+| id | BIGINT | PK，由应用生成随机值 |
 | username | VARCHAR(64) | NOT NULL, UNIQUE |
 | display_name | VARCHAR(64) | NOT NULL |
 | password_hash | VARCHAR(255) | NOT NULL |
@@ -577,7 +577,7 @@ UNIQUE uk_user_username(username)
 
 | 字段 | 类型 | 约束 |
 |---|---|---|
-| id | BIGINT | PK, AUTO_INCREMENT |
+| id | BIGINT | PK，由应用生成随机值 |
 | name | VARCHAR(100) | NOT NULL |
 | description | VARCHAR(500) | NULL |
 | owner_id | BIGINT | NOT NULL |

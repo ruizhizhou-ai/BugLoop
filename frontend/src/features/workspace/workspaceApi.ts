@@ -26,6 +26,13 @@ export interface WorkspaceMember {
   joinedAt: string
 }
 
+/** 添加成员时可选择的启用系统用户，不包含敏感账号信息。 */
+export interface AvailableWorkspaceUser {
+  id: number
+  username: string
+  displayName: string
+}
+
 export interface WorkspacePayload {
   name: string
   description: string | null
@@ -59,6 +66,16 @@ export function updateWorkspace(workspaceId: number, payload: WorkspacePayload):
 /** 查询目标工作空间成员。 */
 export function fetchWorkspaceMembers(workspaceId: number): Promise<WorkspaceMember[]> {
   return http.get<unknown, WorkspaceMember[]>(`/workspaces/${workspaceId}/members`)
+}
+
+/** 搜索尚未加入指定工作空间的启用系统用户，供成员添加弹窗选择。 */
+export function searchAvailableWorkspaceUsers(
+  workspaceId: number,
+  keyword: string,
+): Promise<AvailableWorkspaceUser[]> {
+  return http.get<unknown, AvailableWorkspaceUser[]>(`/workspaces/${workspaceId}/available-users`, {
+    params: { keyword },
+  })
 }
 
 /** 添加已存在的系统用户。 */

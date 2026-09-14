@@ -17,7 +17,8 @@ import java.time.LocalDateTime;
 @TableName("workspace")
 public class Workspace {
 
-    @TableId(type = IdType.AUTO)
+    // 工作空间 ID 由应用生成随机值，避免通过自增值枚举工作空间。
+    @TableId(type = IdType.INPUT)
     private Long id;
 
     private String name;

@@ -6,6 +6,7 @@ package com.wjfz.bugloop.auth.controller;
 import cn.dev33.satoken.secure.BCrypt;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.jayway.jsonpath.JsonPath;
+import com.wjfz.bugloop.common.id.RandomIdGenerator;
 import com.wjfz.bugloop.user.entity.User;
 import com.wjfz.bugloop.user.mapper.UserMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -155,6 +156,8 @@ class AuthControllerTest {
     @Test
     void 禁用用户登录时返回40305() throws Exception {
         User disabledUser = new User();
+        // 用户实体使用应用输入主键，直接写 Mapper 的测试也必须遵守同一生成规则。
+        disabledUser.setId(RandomIdGenerator.nextId());
         disabledUser.setUsername("disabled");
         disabledUser.setDisplayName("已禁用");
         disabledUser.setPasswordHash(BCrypt.hashpw("bugloop123"));

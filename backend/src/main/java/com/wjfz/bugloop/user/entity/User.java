@@ -17,7 +17,8 @@ import java.time.LocalDateTime;
 @TableName("sys_user")
 public class User {
 
-    @TableId(type = IdType.AUTO)
+    // 用户 ID 由应用生成随机值，避免通过自增值推测用户数量和创建顺序。
+    @TableId(type = IdType.INPUT)
     private Long id;
 
     private String username;

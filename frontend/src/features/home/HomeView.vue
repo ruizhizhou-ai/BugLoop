@@ -11,7 +11,6 @@ import {
   ElForm,
   ElFormItem,
   ElInput,
-  ElInputNumber,
   ElOption,
   ElPopconfirm,
   ElSelect,
@@ -38,7 +37,11 @@ import 'element-plus/es/components/tag/style/css'
 
 import { useAuthStore } from '@/features/auth/authStore'
 import { useWorkspaceStore } from '@/features/workspace/workspaceStore'
-import type { WorkspaceRole } from '@/features/workspace/workspaceApi'
+import {
+  searchAvailableWorkspaceUsers,
+  type AvailableWorkspaceUser,
+  type WorkspaceRole,
+} from '@/features/workspace/workspaceApi'
 import { isApiError } from '@/shared/api/types'
 
 const router = useRouter()
@@ -50,6 +53,9 @@ const submitting = ref(false)
 const createDialogVisible = ref(false)
 const editDialogVisible = ref(false)
 const memberDialogVisible = ref(false)
+const availableUsers = ref<AvailableWorkspaceUser[]>([])
+const userSearchLoading = ref(false)
+let userSearchRequestId = 0
 
 const createForm = reactive({ name: '', description: '' })
 const editForm = reactive({ name: '', description: '' })
@@ -152,10 +158,44 @@ async function handleUpdateWorkspace(): Promise<void> {
   }
 }
 
-/** 添加已有系统用户，第一期按用户 ID 精确添加。 */
+/** 打开成员添加窗口并加载首批可选用户，降低管理员记忆随机 ID 的成本。 */
+async function openMemberDialog(): Promise<void> {
+  memberForm.userId = undefined
+  memberForm.role = 'MEMBER'
+  memberDialogVisible.value = true
+  await searchAvailableUsers('')
+}
+
+/** 搜索可加入当前空间的启用用户，只采用最后一次请求的结果避免快速输入时列表倒退。 */
+async function searchAvailableUsers(keyword: string): Promise<void> {
+  const workspaceId = workspaceStore.currentWorkspaceId
+  if (!workspaceId) {
+    return
+  }
+  const requestId = ++userSearchRequestId
+  userSearchLoading.value = true
+  try {
+    const users = await searchAvailableWorkspaceUsers(workspaceId, keyword.trim())
+    // 远程搜索可能乱序返回，过期结果不能覆盖用户刚输入关键词对应的候选项。
+    if (requestId === userSearchRequestId) {
+      availableUsers.value = users
+    }
+  } catch (error) {
+    if (requestId === userSearchRequestId) {
+      availableUsers.value = []
+      errorMessage.value = isApiError(error) ? error.message : '查询用户失败，请稍后重试'
+    }
+  } finally {
+    if (requestId === userSearchRequestId) {
+      userSearchLoading.value = false
+    }
+  }
+}
+
+/** 添加已选择的系统用户，提交时仍由服务端校验用户状态和成员重复关系。 */
 async function handleAddMember(): Promise<void> {
   if (!memberForm.userId || memberForm.userId <= 0) {
-    errorMessage.value = '请输入有效的用户 ID'
+    errorMessage.value = '请选择要添加的用户'
     return
   }
   const succeeded = await runAction(() =>
@@ -165,6 +205,7 @@ async function handleAddMember(): Promise<void> {
     memberDialogVisible.value = false
     memberForm.userId = undefined
     memberForm.role = 'MEMBER'
+    availableUsers.value = []
   }
 }
 
@@ -329,7 +370,7 @@ async function runAction(action: () => Promise<void>): Promise<boolean> {
                 <h2>成员管理</h2>
                 <span class="card-subtitle">共 {{ workspaceStore.members.length }} 位成员</span>
               </div>
-              <el-button v-if="canManageMembers" type="primary" @click="memberDialogVisible = true">
+              <el-button v-if="canManageMembers" type="primary" @click="openMemberDialog">
                 添加成员
               </el-button>
             </div>
@@ -412,9 +453,24 @@ async function runAction(action: () => Promise<void>): Promise<boolean> {
 
     <el-dialog v-model="memberDialogVisible" title="添加工作空间成员" width="min(92vw, 480px)">
       <el-form label-position="top" @submit.prevent="handleAddMember">
-        <el-form-item label="用户 ID" required>
-          <el-input-number v-model="memberForm.userId" :min="1" :precision="0" controls-position="right" />
-          <span class="form-hint">只能添加已注册且处于启用状态的系统用户。</span>
+        <el-form-item label="选择用户" required>
+          <el-select
+            v-model="memberForm.userId"
+            filterable
+            remote
+            :remote-method="searchAvailableUsers"
+            :loading="userSearchLoading"
+            placeholder="输入用户名或显示名称搜索"
+            no-data-text="没有可添加的启用用户"
+          >
+            <el-option
+              v-for="user in availableUsers"
+              :key="user.id"
+              :label="`${user.displayName}（${user.username}）`"
+              :value="user.id"
+            />
+          </el-select>
+          <span class="form-hint">仅显示已启用且尚未加入当前工作空间的用户。</span>
         </el-form-item>
         <el-form-item label="初始角色" required>
           <el-select v-model="memberForm.role">

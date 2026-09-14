@@ -9,6 +9,7 @@ import com.wjfz.bugloop.workspace.dto.CreateWorkspaceRequest;
 import com.wjfz.bugloop.workspace.dto.UpdateWorkspaceMemberRoleRequest;
 import com.wjfz.bugloop.workspace.dto.UpdateWorkspaceRequest;
 import com.wjfz.bugloop.workspace.service.WorkspaceService;
+import com.wjfz.bugloop.workspace.vo.AvailableWorkspaceUserVO;
 import com.wjfz.bugloop.workspace.vo.WorkspaceMemberVO;
 import com.wjfz.bugloop.workspace.vo.WorkspaceVO;
 import jakarta.validation.Valid;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -91,6 +93,20 @@ public class WorkspaceController {
     @GetMapping("/{workspaceId}/members")
     public ApiResponse<List<WorkspaceMemberVO>> listMembers(@PathVariable Long workspaceId) {
         return ApiResponse.success(workspaceService.listMembers(workspaceId));
+    }
+
+    /**
+     * 查询可添加的启用用户，按用户名或显示名称筛选，并排除当前工作空间已有成员。
+     *
+     * @param workspaceId 工作空间主键
+     * @param keyword 可选搜索关键字
+     * @return 用户选择器候选项
+     */
+    @GetMapping("/{workspaceId}/available-users")
+    public ApiResponse<List<AvailableWorkspaceUserVO>> listAvailableUsers(
+            @PathVariable Long workspaceId,
+            @RequestParam(required = false) String keyword) {
+        return ApiResponse.success(workspaceService.listAvailableUsers(workspaceId, keyword));
     }
 
     /**

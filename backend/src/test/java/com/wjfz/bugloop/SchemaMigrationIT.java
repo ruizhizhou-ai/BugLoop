@@ -32,13 +32,13 @@ class SchemaMigrationIT extends AbstractMysqlIntegrationTest {
     @Test
     void 用户名唯一索引应生效() {
         jdbcTemplate.update("""
-                INSERT INTO sys_user (username, display_name, password_hash, system_role, enabled, created_at, updated_at)
-                VALUES ('index_probe', '索引验证', 'hash', 'USER', 1, NOW(), NOW())
+                INSERT INTO sys_user (id, username, display_name, password_hash, system_role, enabled, created_at, updated_at)
+                VALUES (900001, 'index_probe', '索引验证', 'hash', 'USER', 1, NOW(), NOW())
                 """);
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> jdbcTemplate.update("""
-                        INSERT INTO sys_user (username, display_name, password_hash, system_role, enabled, created_at, updated_at)
-                        VALUES ('index_probe', '重复用户', 'hash', 'USER', 1, NOW(), NOW())
+                        INSERT INTO sys_user (id, username, display_name, password_hash, system_role, enabled, created_at, updated_at)
+                        VALUES (900002, 'index_probe', '重复用户', 'hash', 'USER', 1, NOW(), NOW())
                         """))
                 .isInstanceOf(org.springframework.dao.DuplicateKeyException.class);
 

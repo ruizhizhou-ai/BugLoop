@@ -4,6 +4,7 @@
 package com.wjfz.bugloop.user.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.wjfz.bugloop.common.id.RandomIdGenerator;
 import com.wjfz.bugloop.user.entity.User;
 import com.wjfz.bugloop.user.mapper.UserMapper;
 import org.springframework.stereotype.Service;
@@ -17,6 +18,8 @@ import java.util.Optional;
  */
 @Service
 public class UserService {
+
+    private static final int USER_OPTION_LIMIT = 20;
 
     private final UserMapper userMapper;
 
@@ -59,6 +62,19 @@ public class UserService {
     }
 
     /**
+     * 查询可添加到指定工作空间的启用用户，支持按用户名或显示名称模糊匹配。
+     *
+     * @param workspaceId 工作空间主键
+     * @param keyword 查询关键字，可为空
+     * @return 最多 20 个尚未加入该工作空间的用户
+     */
+    public List<User> findEnabledUsersAvailableForWorkspace(Long workspaceId, String keyword) {
+        String normalizedKeyword = keyword == null ? "" : keyword.trim();
+        return userMapper.selectEnabledUsersAvailableForWorkspace(
+                workspaceId, normalizedKeyword, USER_OPTION_LIMIT);
+    }
+
+    /**
      * 统计系统用户总数，用于判断是否需要引导首个管理员。
      *
      * @return 用户总数
@@ -71,9 +87,13 @@ public class UserService {
      * 新增用户，由调用方负责完成校验与密码哈希。
      *
      * @param user 待保存用户
-     * @return 保存后的用户，包含自增主键
+     * @return 保存后的用户，包含应用生成的随机主键
      */
     public User save(User user) {
+        // 统一在用户服务生成主键，避免认证或后续用户管理入口遗漏随机 ID 规则。
+        if (user.getId() == null) {
+            user.setId(RandomIdGenerator.nextId());
+        }
         userMapper.insert(user);
         return user;
     }

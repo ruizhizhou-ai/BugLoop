@@ -4,6 +4,7 @@
 package com.wjfz.bugloop.workspace.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.wjfz.bugloop.common.id.RandomIdGenerator;
 import com.wjfz.bugloop.common.exception.BusinessException;
 import com.wjfz.bugloop.user.entity.User;
 import com.wjfz.bugloop.user.service.UserService;
@@ -19,6 +20,7 @@ import com.wjfz.bugloop.workspace.entity.WorkspaceStatus;
 import com.wjfz.bugloop.workspace.mapper.WorkspaceMapper;
 import com.wjfz.bugloop.workspace.mapper.WorkspaceMemberMapper;
 import com.wjfz.bugloop.workspace.mapper.WorkspaceOperationLogMapper;
+import com.wjfz.bugloop.workspace.vo.AvailableWorkspaceUserVO;
 import com.wjfz.bugloop.workspace.vo.WorkspaceMemberVO;
 import com.wjfz.bugloop.workspace.vo.WorkspaceVO;
 import org.springframework.dao.DuplicateKeyException;
@@ -77,6 +79,8 @@ public class WorkspaceService {
         workspace.setOwnerId(currentUser.getId());
         workspace.setCreatedBy(currentUser.getId());
         workspace.setStatus(WorkspaceStatus.ENABLED);
+        // 工作空间在写入成员关系前生成随机主键，关联记录始终使用同一个不可预测 ID。
+        workspace.setId(RandomIdGenerator.nextId());
         workspaceMapper.insert(workspace);
 
         WorkspaceMember owner = new WorkspaceMember();
@@ -181,6 +185,22 @@ public class WorkspaceService {
             }
         }
         return result;
+    }
+
+    /**
+     * 查询当前工作空间可添加的系统用户，用于成员选择器的搜索候选项。
+     *
+     * @param workspaceId 工作空间主键
+     * @param keyword 用户名或显示名称关键字，可为空
+     * @return 已启用且尚未加入该空间的用户选项
+     */
+    @Transactional(readOnly = true)
+    public List<AvailableWorkspaceUserVO> listAvailableUsers(Long workspaceId, String keyword) {
+        // 查询入口与添加动作采用同一权限和启停规则，避免候选账号被无权限用户枚举。
+        accessService.requireMemberManager(workspaceId);
+        return userService.findEnabledUsersAvailableForWorkspace(workspaceId, keyword).stream()
+                .map(AvailableWorkspaceUserVO::from)
+                .toList();
     }
 
     /**

@@ -84,13 +84,19 @@ public class WorkspaceAccessService {
     public WorkspaceAccess requireMemberManagerForUpdate(Long workspaceId) {
         Workspace workspace = lockWorkspace(workspaceId);
         ensureEnabled(workspace);
-        User user = currentUser();
-        WorkspaceAccess access = requireMembershipOrSystemAdmin(workspace, user);
-        if (!isSystemAdmin(user)
-                && (access.membership() == null || !access.membership().getRole().canManageMembers())) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, 40301, "当前用户无成员管理权限");
-        }
-        return access;
+        return requireMemberManager(workspace, currentUser());
+    }
+
+    /**
+     * 校验当前用户可读取待添加成员的候选用户。查询不加行锁，但仍复用成员管理权限和启停规则。
+     *
+     * @param workspaceId 工作空间主键
+     * @return 已完成权限校验的访问上下文
+     */
+    public WorkspaceAccess requireMemberManager(Long workspaceId) {
+        Workspace workspace = findWorkspace(workspaceId);
+        ensureEnabled(workspace);
+        return requireMemberManager(workspace, currentUser());
     }
 
     /**
@@ -128,6 +134,22 @@ public class WorkspaceAccessService {
         if (!isSystemAdmin(user)
                 && (access.membership() == null || access.membership().getRole() != WorkspaceRole.OWNER)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, 40301, "当前用户无工作空间管理权限");
+        }
+        return access;
+    }
+
+    /**
+     * 校验成员管理权限；读写入口共用该判断，保证搜索候选用户不会绕过添加成员的授权边界。
+     *
+     * @param workspace 已读取或已锁定的工作空间
+     * @param user 当前登录用户
+     * @return 已确认权限的访问上下文
+     */
+    private WorkspaceAccess requireMemberManager(Workspace workspace, User user) {
+        WorkspaceAccess access = requireMembershipOrSystemAdmin(workspace, user);
+        if (!isSystemAdmin(user)
+                && (access.membership() == null || !access.membership().getRole().canManageMembers())) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, 40301, "当前用户无成员管理权限");
         }
         return access;
     }
