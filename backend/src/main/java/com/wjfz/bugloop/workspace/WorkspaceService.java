@@ -58,7 +58,7 @@ public class WorkspaceService {
      */
     @Transactional
     public WorkspaceVO create(CreateWorkspaceRequest request) {
-        User currentUser = accessService.currentUser();
+        User currentUser = accessService.requireWorkspaceCreator();
         LocalDateTime now = LocalDateTime.now();
 
         Workspace workspace = new Workspace();

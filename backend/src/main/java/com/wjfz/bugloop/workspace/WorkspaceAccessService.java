@@ -44,6 +44,31 @@ public class WorkspaceAccessService {
     }
 
     /**
+     * 校验当前用户可创建工作空间。SYSTEM_ADMIN、未加入任何空间的用户，
+     * 以及已在某个空间担任 OWNER / ADMIN 的用户允许创建；只有 MEMBER 身份的用户不允许。
+     *
+     * @return 当前系统用户
+     */
+    public User requireWorkspaceCreator() {
+        User user = currentUser();
+        if (isSystemAdmin(user)) {
+            return user;
+        }
+        long memberships = memberMapper.selectCount(Wrappers.<WorkspaceMember>lambdaQuery()
+                .eq(WorkspaceMember::getUserId, user.getId()));
+        if (memberships == 0) {
+            return user;
+        }
+        long managerRoles = memberMapper.selectCount(Wrappers.<WorkspaceMember>lambdaQuery()
+                .eq(WorkspaceMember::getUserId, user.getId())
+                .in(WorkspaceMember::getRole, WorkspaceRole.OWNER, WorkspaceRole.ADMIN));
+        if (managerRoles == 0) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, 40301, "当前用户无创建工作空间权限");
+        }
+        return user;
+    }
+
+    /**
      * 在事务内锁定工作空间并校验成员管理权限。行锁会串行化成员变更和停用操作，
      * 避免并发降级或删除两个 OWNER 后留下无 OWNER 的工作空间。
      *

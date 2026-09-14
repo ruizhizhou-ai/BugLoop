@@ -96,7 +96,14 @@ async function handleSubmit(): Promise<void> {
 
       <el-alert v-if="errorMessage" :title="errorMessage" type="error" :closable="false" show-icon />
 
-      <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="handleSubmit">
+      <el-form
+        ref="formRef"
+        class="auth-card__form"
+        :model="form"
+        :rules="rules"
+        label-position="top"
+        @submit.prevent="handleSubmit"
+      >
         <el-form-item label="用户名" prop="username">
           <el-input v-model="form.username" placeholder="3-64 位字母、数字或下划线" autocomplete="username" />
         </el-form-item>

@@ -69,6 +69,24 @@ const canEditWorkspace = canManageMembers
 const canDisableWorkspace = computed(
   () => workspaceStore.isEnabled && (isSystemAdmin.value || currentRole.value === 'OWNER'),
 )
+/**
+ * 与服务端 requireWorkspaceCreator 保持一致：SYSTEM_ADMIN、还没有任何工作空间的用户，
+ * 以及已在某个空间担任 OWNER / ADMIN 的用户可以创建；仅有 MEMBER 身份的用户不能。
+ */
+const canCreateWorkspace = computed(
+  () =>
+    isSystemAdmin.value ||
+    workspaceStore.workspaces.length === 0 ||
+    workspaceStore.workspaces.some(
+      (workspace) => workspace.currentUserRole === 'OWNER' || workspace.currentUserRole === 'ADMIN',
+    ),
+)
+
+const emptyStateDescription = computed(() =>
+  canCreateWorkspace.value
+    ? '你还没有加入工作空间'
+    : '你还没有加入工作空间，请联系系统管理员或空间负责人邀请你加入',
+)
 const canEnableWorkspace = computed(
   () =>
     workspaceStore.currentWorkspace?.status === 'DISABLED' &&
@@ -219,7 +237,14 @@ async function runAction(action: () => Promise<void>): Promise<boolean> {
             <span v-if="workspace.status === 'DISABLED'" class="workspace-option__status">已停用</span>
           </el-option>
         </el-select>
-        <el-button type="primary" plain @click="createDialogVisible = true">创建工作空间</el-button>
+        <el-button
+          v-if="canCreateWorkspace"
+          type="primary"
+          plain
+          @click="createDialogVisible = true"
+        >
+          创建工作空间
+        </el-button>
       </div>
 
       <div class="home__account">
@@ -245,8 +270,10 @@ async function runAction(action: () => Promise<void>): Promise<boolean> {
       <el-card v-if="workspaceStore.loading" shadow="never">正在加载工作空间…</el-card>
 
       <el-card v-else-if="!workspaceStore.currentWorkspace" class="empty-card" shadow="never">
-        <el-empty description="你还没有加入工作空间">
-          <el-button type="primary" @click="createDialogVisible = true">创建第一个工作空间</el-button>
+        <el-empty :description="emptyStateDescription">
+          <el-button v-if="canCreateWorkspace" type="primary" @click="createDialogVisible = true">
+            创建第一个工作空间
+          </el-button>
         </el-empty>
       </el-card>
 

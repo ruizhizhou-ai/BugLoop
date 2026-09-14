@@ -244,6 +244,32 @@ class WorkspaceControllerTest {
     }
 
     @Test
+    void 创建工作空间应按角色校验且成员不能创建() throws Exception {
+        Session systemAdmin = register("system_admin");
+        Session owner = register("owner");
+        Session member = register("member");
+        long firstWorkspaceId = createWorkspace(owner.token(), "第一个空间");
+        addMember(owner.token(), firstWorkspaceId, member.userId(), "MEMBER")
+                .andExpect(status().isOk());
+
+        createWorkspace(systemAdmin.token(), "系统管理员空间");
+        createWorkspace(owner.token(), "负责人第二个空间");
+
+        mockMvc.perform(post("/api/workspaces")
+                        .header("Authorization", bearer(member.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"成员不应创建成功","description":null}
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(40301));
+
+        updateRole(owner.token(), firstWorkspaceId, member.userId(), "ADMIN")
+                .andExpect(status().isOk());
+        createWorkspace(member.token(), "升级为管理员后创建的空间");
+    }
+
+    @Test
     void 非法角色应返回参数错误而不是系统异常() throws Exception {
         register("system_admin");
         Session owner = register("owner");
