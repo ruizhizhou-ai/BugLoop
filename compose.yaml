@@ -1,7 +1,7 @@
 # 本文件为 BugLoop 提供本地 MySQL，并预留前后端容器化联调方式。
 services:
   mysql:
-    image: mysql:8.4
+    image: mysql:8.0
     container_name: bugloop-mysql
     restart: unless-stopped
     environment:
@@ -34,7 +34,7 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-bugloop}
       MYSQL_USERNAME: ${MYSQL_USERNAME:-bugloop}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-bugloop}
-      JWT_SECRET: ${JWT_SECRET:-replace-with-at-least-32-random-characters}
+      BUGLOOP_ADMIN_BOOTSTRAP_ENABLED: ${BUGLOOP_ADMIN_BOOTSTRAP_ENABLED:-true}
       BUGLOOP_STORAGE_ROOT: /var/lib/bugloop/attachments
     ports:
       - "8080:8080"

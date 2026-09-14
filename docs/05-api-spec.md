@@ -56,10 +56,12 @@ HTTP 状态码需要与业务语义一致：
 | 0 | success |
 | 40001 | 参数校验失败 |
 | 40101 | 未登录或 Token 无效 |
+| 40102 | 用户名或密码错误 |
 | 40301 | 无系统权限 |
 | 40302 | 不是当前工作空间成员 |
 | 40303 | 当前用户不是 Bug 负责人 |
 | 40304 | 当前用户不是 Bug 验收人 |
+| 40305 | 用户已被禁用 |
 | 40401 | 用户不存在 |
 | 40402 | 工作空间不存在 |
 | 40403 | Bug 不存在 |
@@ -67,6 +69,7 @@ HTTP 状态码需要与业务语义一致：
 | 40902 | 数据版本冲突 |
 | 40903 | 用户已经是工作空间成员 |
 | 40904 | 不能删除最后一个 Owner |
+| 40905 | 用户名已存在 |
 | 42201 | 未填写修复说明 |
 | 42202 | 验收驳回原因不能为空 |
 | 42203 | Bug 尚未指定负责人 |
@@ -75,6 +78,120 @@ HTTP 状态码需要与业务语义一致：
 | 50000 | 系统内部异常 |
 
 错误信息必须面向用户可理解，不能直接返回 Java 异常堆栈。
+
+---
+
+## 四十六之二、认证 API Spec
+
+除登录和注册外，所有 `/api` 接口都必须携带登录凭证。
+
+请求头：
+
+```Plain
+Authorization: Bearer <token>
+```
+
+缺少、无效或已过期的 Token 返回：
+
+```Plain
+401 + 40101
+```
+
+### 46A.1 注册
+
+```Plain
+POST /api/auth/register
+```
+
+Request：
+
+```Json
+{
+  "username": "zhangsan",
+  "displayName": "张三",
+  "password": "bugloop123"
+}
+```
+
+成功后：
+
+- 创建 `sys_user`，`system_role` 默认为 `USER`；
+- `sys_user` 为空且开启管理员引导配置时，第一个注册用户成为 `SYSTEM_ADMIN`；
+- 直接返回登录结果，前端无需二次登录。
+
+失败：
+
+```Plain
+400 + 40001 参数校验失败（用户名、密码、显示名不满足 37.1 规则）
+409 + 40905 用户名已存在
+```
+
+### 46A.2 登录
+
+```Plain
+POST /api/auth/login
+```
+
+Request：
+
+```Json
+{
+  "username": "zhangsan",
+  "password": "bugloop123"
+}
+```
+
+Response：
+
+```Json
+{
+  "code": 0,
+  "message": "success",
+  "data": {
+    "token": "xxxx",
+    "user": {
+      "id": 1001,
+      "username": "zhangsan",
+      "displayName": "张三",
+      "systemRole": "SYSTEM_ADMIN",
+      "createdAt": "2026-09-14T10:00:00"
+    }
+  }
+}
+```
+
+失败：
+
+```Plain
+401 + 40102 用户名或密码错误（不区分用户名不存在与密码错误）
+403 + 40305 用户已被禁用
+```
+
+### 46A.3 登出
+
+```Plain
+POST /api/auth/logout
+```
+
+成功后服务端清除当前登录会话，Token 立即失效。
+
+### 46A.4 当前用户
+
+```Plain
+GET /api/users/me
+```
+
+Response data：
+
+```Json
+{
+  "id": 1001,
+  "username": "zhangsan",
+  "displayName": "张三",
+  "systemRole": "SYSTEM_ADMIN",
+  "createdAt": "2026-09-14T10:00:00"
+}
+```
 
 ---
 

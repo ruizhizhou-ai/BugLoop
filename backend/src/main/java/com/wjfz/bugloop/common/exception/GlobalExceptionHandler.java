@@ -3,6 +3,7 @@
  */
 package com.wjfz.bugloop.common.exception;
 
+import cn.dev33.satoken.exception.NotLoginException;
 import com.wjfz.bugloop.common.api.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,6 +46,18 @@ public class GlobalExceptionHandler {
                 .map(error -> error.getDefaultMessage() == null ? "请求参数不合法" : error.getDefaultMessage())
                 .orElse("请求参数不合法");
         return ResponseEntity.badRequest().body(ApiResponse.failure(40001, message));
+    }
+
+    /**
+     * 把 Sa-Token 抛出的未登录异常转换为 Spec 定义的 40101，不向前端暴露会话实现细节。
+     *
+     * @param exception 未登录异常
+     * @return 未登录响应
+     */
+    @ExceptionHandler(NotLoginException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNotLoginException(NotLoginException exception) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(ApiResponse.failure(40101, "未登录或登录状态已失效"));
     }
 
     /**

@@ -17,6 +17,16 @@ mybatis-plus:
     map-underscore-to-camel-case: true
   mapper-locations: classpath*:/mapper/**/*.xml
 
+sa-token:
+  # 前后端分离场景只通过请求头传递 Token，值形如 "Bearer xxxx"，与应用响应头 40101 的约定一致。
+  token-name: Authorization
+  token-prefix: Bearer
+  # 会话有效期 7 天，内部系统允许多端同时登录，不启用多个 Token 共享。
+  timeout: 604800
+  is-concurrent: true
+  is-share: false
+  is-read-cookie: false
+
 management:
   endpoints:
     web:
@@ -29,4 +39,7 @@ management:
 bugloop:
   storage:
     root: ${BUGLOOP_STORAGE_ROOT:../data/attachments}
+  admin:
+    # 开启后，sys_user 为空时第一个注册成功的用户自动成为 SYSTEM_ADMIN。
+    bootstrap-enabled: ${BUGLOOP_ADMIN_BOOTSTRAP_ENABLED:true}
 

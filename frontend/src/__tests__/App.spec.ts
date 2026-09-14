@@ -1,5 +1,5 @@
 /**
- * 本文件验证前端根组件能够正常渲染，作为 Vue 项目骨架的最小回归测试。
+ * 本文件验证根组件能够把渲染职责交给路由出口。
  */
 import { describe, it, expect } from 'vitest'
 
@@ -7,15 +7,14 @@ import { mount } from '@vue/test-utils'
 import App from '../App.vue'
 
 describe('App', () => {
-  it('应显示项目骨架就绪状态', () => {
+  it('应渲染路由出口', () => {
     const wrapper = mount(App, {
       global: {
         stubs: {
-          ElCard: { template: '<section><slot name="header" /><slot /></section>' },
-          ElTag: { template: '<span><slot /></span>' },
+          RouterView: { template: '<div class="router-view-stub" />' },
         },
       },
     })
-    expect(wrapper.text()).toContain('项目骨架已就绪')
+    expect(wrapper.find('.router-view-stub').exists()).toBe(true)
   })
 })
