@@ -1,6 +1,6 @@
 <!-- 本文件实现 Bug 详情页：完整信息展示、按角色与状态控制的操作按钮，以及各项业务弹窗。 -->
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ElAlert,
@@ -99,6 +99,10 @@ const infoDialogVisible = ref(false)
 const previewTab = ref<'comments' | 'logs' | 'history'>('comments')
 const commentDraft = ref('')
 const attachmentInput = ref<HTMLInputElement | null>(null)
+const imagePreviewVisible = ref(false)
+const imagePreviewLoading = ref(false)
+const imagePreviewUrl = ref('')
+const imagePreviewName = ref('')
 
 const acceptForm = reactive({ commentMd: '' })
 const fixForm = reactive({ fixDescriptionMd: '' })
@@ -370,6 +374,52 @@ async function handleDownload(attachment: BugAttachment): Promise<void> {
   }
 }
 
+/** 判断附件是否可在浏览器安全地直接预览，兼容旧数据缺少 contentType 的场景。 */
+function isPreviewableImage(attachment: BugAttachment): boolean {
+  if (attachment.contentType?.toLowerCase().startsWith('image/')) {
+    return true
+  }
+  return /\.(png|jpe?g|gif|webp)$/i.test(attachment.originalName)
+}
+
+/**
+ * 通过已有鉴权下载接口加载图片 Blob，并生成仅在当前页面有效的预览地址。
+ * 不直接拼接静态文件路径，避免绕过服务端的附件访问权限校验。
+ */
+async function openImagePreview(attachment: BugAttachment): Promise<void> {
+  clearImagePreviewUrl()
+  imagePreviewName.value = attachment.originalName
+  imagePreviewVisible.value = true
+  imagePreviewLoading.value = true
+  errorMessage.value = ''
+  try {
+    const { blob } = await downloadFile(`/attachments/${attachment.id}/download`)
+    if (!blob.type.startsWith('image/') && !isPreviewableImage(attachment)) {
+      throw new Error('附件不是可预览的图片')
+    }
+    imagePreviewUrl.value = URL.createObjectURL(blob)
+  } catch (error) {
+    imagePreviewVisible.value = false
+    errorMessage.value = isApiError(error) ? error.message : '图片预览加载失败，请稍后重试'
+  } finally {
+    imagePreviewLoading.value = false
+  }
+}
+
+/** 关闭预览后立即释放 Blob URL，避免重复预览大图时累积占用浏览器内存。 */
+function closeImagePreview(): void {
+  imagePreviewVisible.value = false
+  clearImagePreviewUrl()
+}
+
+/** 仅在确实创建过本地 URL 时释放，空字符串不会触发无效调用。 */
+function clearImagePreviewUrl(): void {
+  if (imagePreviewUrl.value) {
+    URL.revokeObjectURL(imagePreviewUrl.value)
+    imagePreviewUrl.value = ''
+  }
+}
+
 async function handleDeleteAttachment(attachmentId: number): Promise<void> {
   await runAction(() => bugStore.removeAttachment(resolvedBugId.value, attachmentId))
 }
@@ -386,6 +436,8 @@ function goBack(): void {
   }
   void router.push({ name: 'bug-list', params: { workspaceId: workspaceId.value } })
 }
+
+onBeforeUnmount(clearImagePreviewUrl)
 </script>
 
 <template>
@@ -548,6 +600,14 @@ function goBack(): void {
           </el-table-column>
           <el-table-column label="操作" width="140">
             <template #default="{ row }">
+              <el-button
+                v-if="isPreviewableImage(row as BugAttachment)"
+                link
+                type="primary"
+                @click="openImagePreview(row as BugAttachment)"
+              >
+                预览
+              </el-button>
               <el-button link type="primary" @click="handleDownload(row as BugAttachment)"
                 >下载</el-button
               >
@@ -775,6 +835,24 @@ function goBack(): void {
         <el-button @click="bugStore.closeHistoryDetail()">关闭</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog
+      v-model="imagePreviewVisible"
+      class="image-preview-dialog"
+      :title="imagePreviewName || '图片预览'"
+      width="min(94vw, 1100px)"
+      destroy-on-close
+      @closed="closeImagePreview"
+    >
+      <div v-loading="imagePreviewLoading" class="image-preview-dialog__body">
+        <img
+          v-if="imagePreviewUrl"
+          :src="imagePreviewUrl"
+          :alt="imagePreviewName"
+          class="image-preview-dialog__image"
+        />
+      </div>
+    </el-dialog>
   </main>
 </template>
 
@@ -861,6 +939,24 @@ function goBack(): void {
 
 .attachment-input {
   display: none;
+}
+
+.image-preview-dialog__body {
+  display: grid;
+  min-height: 280px;
+  max-height: min(70vh, 780px);
+  place-items: center;
+  overflow: auto;
+  background: var(--bl-control-bg);
+  border: 1px solid var(--bl-border);
+  border-radius: 8px;
+}
+
+.image-preview-dialog__image {
+  display: block;
+  max-width: 100%;
+  max-height: min(68vh, 750px);
+  object-fit: contain;
 }
 
 .acceptance-record {
