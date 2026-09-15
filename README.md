@@ -77,3 +77,6 @@ cd frontend && pnpm test:unit --run && pnpm build
 - 单元测试使用 H2 内存库，并执行与生产完全相同的 Flyway 迁移脚本；
 - 集成测试（`*IT`）通过 Testcontainers 启动真实 MySQL，验证迁移结果与完整认证链路，需要本机 Docker 可用，否则自动跳过。
 
+## Linux 部署
+
+仓库提供独立的生产 Compose 和一键部署脚本，服务器只需安装 Docker Engine、Docker Compose v2 与 Git。前置条件、初始化管理员、HTTPS 和备份说明见 [Linux 部署文档](docs/08-linux-deployment.md)。

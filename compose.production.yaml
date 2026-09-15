@@ -1,0 +1,63 @@
+# 本文件用于单机 Linux 生产部署，只向宿主机暴露 Web 入口，数据库和后端仅在容器网络内通信。
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_0900_ai_ci
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-bugloop}
+      MYSQL_USER: ${MYSQL_USERNAME:-bugloop}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?必须在 .env.production 中设置 MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?必须在 .env.production 中设置 MYSQL_ROOT_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      # 后端只能在 MySQL 真正接受连接后启动，避免启动阶段迁移失败。
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/docker/backend.Dockerfile
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-bugloop}
+      MYSQL_USERNAME: ${MYSQL_USERNAME:-bugloop}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?必须在 .env.production 中设置 MYSQL_PASSWORD}
+      BUGLOOP_ADMIN_BOOTSTRAP_ENABLED: ${BUGLOOP_ADMIN_BOOTSTRAP_ENABLED:-true}
+      BUGLOOP_STORAGE_ROOT: /var/lib/bugloop/attachments
+      JAVA_TOOL_OPTIONS: ${JAVA_TOOL_OPTIONS:--XX:MaxRAMPercentage=70.0 -Dfile.encoding=UTF-8}
+      TZ: Asia/Shanghai
+    volumes:
+      # 附件与应用镜像解耦，重新构建或升级容器不会丢失文件。
+      - attachment-data:/var/lib/bugloop/attachments
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/docker/frontend.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${HTTP_BIND_ADDRESS:-0.0.0.0}:${HTTP_PORT:-80}:80"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  mysql-data:
+  attachment-data:
