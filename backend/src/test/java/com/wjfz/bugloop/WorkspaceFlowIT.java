@@ -10,6 +10,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -38,12 +39,12 @@ class WorkspaceFlowIT extends AbstractMysqlIntegrationTest {
 
     @Test
     void 工作空间主链路应在真实MySQL上保持事务一致() throws Exception {
-        register("system_admin");
+        Session systemAdmin = register("system_admin");
         Session owner = register("mysql_owner");
         Session member = register("mysql_member");
 
         MvcResult createResult = mockMvc.perform(post("/api/workspaces")
-                        .header("Authorization", bearer(owner.token()))
+                        .header("Authorization", bearer(systemAdmin.token()))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"name":"MySQL 研发空间","description":"真实数据库验证"}
@@ -54,6 +55,19 @@ class WorkspaceFlowIT extends AbstractMysqlIntegrationTest {
         Number workspaceIdValue = JsonPath.read(
                 createResult.getResponse().getContentAsString(), "$.data.id");
         long workspaceId = workspaceIdValue.longValue();
+
+        // SYSTEM_ADMIN 创建首个空间后交接给 OWNER，普通用户不能依赖“零空间”状态绕过创建权限。
+        mockMvc.perform(post("/api/workspaces/{id}/members", workspaceId)
+                        .header("Authorization", bearer(systemAdmin.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"userId":%d,"role":"OWNER"}
+                                """.formatted(owner.userId())))
+                .andExpect(status().isOk());
+        mockMvc.perform(delete("/api/workspaces/{workspaceId}/members/{userId}",
+                        workspaceId, systemAdmin.userId())
+                        .header("Authorization", bearer(owner.token())))
+                .andExpect(status().isOk());
 
         mockMvc.perform(post("/api/workspaces/{id}/members", workspaceId)
                         .header("Authorization", bearer(owner.token()))
@@ -91,7 +105,7 @@ class WorkspaceFlowIT extends AbstractMysqlIntegrationTest {
         Integer logCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM workspace_operation_log WHERE workspace_id = ?", Integer.class, workspaceId);
         assertThat(memberCount).isEqualTo(2);
-        assertThat(logCount).isEqualTo(5);
+        assertThat(logCount).isEqualTo(7);
     }
 
     private Session register(String username) throws Exception {

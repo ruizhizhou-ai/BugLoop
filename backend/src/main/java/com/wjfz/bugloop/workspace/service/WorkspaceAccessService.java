@@ -50,19 +50,14 @@ public class WorkspaceAccessService {
     }
 
     /**
-     * 校验当前用户可创建工作空间。SYSTEM_ADMIN、未加入任何空间的用户，
-     * 以及已在某个空间担任 OWNER / ADMIN 的用户允许创建；只有 MEMBER 身份的用户不允许。
+     * 校验当前用户可创建工作空间。SYSTEM_ADMIN，或已在任一空间担任 OWNER / ADMIN 的用户允许创建；
+     * 普通用户即使尚未加入空间也不能绕过管理权限自行创建。
      *
      * @return 当前系统用户
      */
     public User requireWorkspaceCreator() {
         User user = currentUser();
         if (isSystemAdmin(user)) {
-            return user;
-        }
-        long memberships = memberMapper.selectCount(Wrappers.<WorkspaceMember>lambdaQuery()
-                .eq(WorkspaceMember::getUserId, user.getId()));
-        if (memberships == 0) {
             return user;
         }
         long managerRoles = memberMapper.selectCount(Wrappers.<WorkspaceMember>lambdaQuery()

@@ -11,6 +11,8 @@ import AppIcon from '@/shared/components/AppIcon.vue'
 import ThemeToggle from '@/shared/components/ThemeToggle.vue'
 import { useAuthStore } from '@/features/auth/authStore'
 import { useBugStore } from '@/features/bug/bugStore'
+import WorkspaceCreateDialog from '@/features/workspace/WorkspaceCreateDialog.vue'
+import { canCreateWorkspace } from '@/features/workspace/workspacePermissions'
 import { useWorkspaceStore } from '@/features/workspace/workspaceStore'
 
 interface NavigationItem {
@@ -30,12 +32,16 @@ const searchKeyword = ref('')
 const sidebarOpen = ref(false)
 const accountMenuOpen = ref(false)
 const utilityPanel = ref<'notifications' | 'help' | null>(null)
+const createWorkspaceDialogVisible = ref(false)
 
 const workspaceId = computed(() => workspaceStore.currentWorkspaceId)
 const accountInitial = computed(() =>
   (auth.user?.displayName || auth.user?.username || 'U').slice(0, 1).toUpperCase(),
 )
 const pageKey = computed(() => `${String(route.name)}-${String(route.params.workspaceId ?? '')}`)
+const canCreate = computed(() =>
+  canCreateWorkspace(auth.user?.systemRole, workspaceStore.workspaces),
+)
 
 const mainNavigation: NavigationItem[] = [
   { label: '首页', icon: 'home', routeName: 'workspace-dashboard' },
@@ -82,6 +88,13 @@ async function handleWorkspaceChange(value: number): Promise<void> {
   }
 }
 
+/** 创建成功后复用切换流程进入新空间，并清理旧空间的 Bug 查询条件。 */
+async function handleWorkspaceCreated(workspaceId: number): Promise<void> {
+  bugStore.resetQuery()
+  sidebarOpen.value = false
+  await router.push({ name: 'workspace-dashboard', params: { workspaceId } })
+}
+
 /** 进入侧栏目标页，并在移动端自动收起导航抽屉。 */
 function navigate(routeName: string): void {
   if (!workspaceId.value) {
@@ -124,26 +137,37 @@ async function handleLogout(): Promise<void> {
         <span>BugLoop</span>
       </div>
 
-      <el-select
-        v-if="workspaceStore.workspaces.length"
-        class="workspace-switcher"
-        :model-value="workspaceStore.currentWorkspaceId"
-        placeholder="选择工作空间"
-        :loading="workspaceStore.loading"
-        @change="handleWorkspaceChange"
-      >
-        <el-option
-          v-for="workspace in workspaceStore.workspaces"
-          :key="workspace.id"
-          :label="workspace.name"
-          :value="workspace.id"
+      <div v-if="workspaceStore.workspaces.length" class="workspace-switcher-row">
+        <el-select
+          class="workspace-switcher"
+          :model-value="workspaceStore.currentWorkspaceId"
+          placeholder="选择工作空间"
+          :loading="workspaceStore.loading"
+          @change="handleWorkspaceChange"
         >
-          <span>{{ workspace.name }}</span>
-          <span v-if="workspace.status === 'DISABLED'" class="workspace-option__status"
-            >已停用</span
+          <el-option
+            v-for="workspace in workspaceStore.workspaces"
+            :key="workspace.id"
+            :label="workspace.name"
+            :value="workspace.id"
           >
-        </el-option>
-      </el-select>
+            <span>{{ workspace.name }}</span>
+            <span v-if="workspace.status === 'DISABLED'" class="workspace-option__status"
+              >已停用</span
+            >
+          </el-option>
+        </el-select>
+        <button
+          v-if="canCreate"
+          type="button"
+          class="workspace-create-button"
+          title="新建工作空间"
+          aria-label="新建工作空间"
+          @click="createWorkspaceDialogVisible = true"
+        >
+          <AppIcon name="plus" :size="18" />
+        </button>
+      </div>
 
       <nav class="sidebar-nav" aria-label="工作空间导航">
         <button
@@ -280,6 +304,11 @@ async function handleLogout(): Promise<void> {
         <router-view :key="pageKey" />
       </div>
     </section>
+
+    <WorkspaceCreateDialog
+      v-model="createWorkspaceDialogVisible"
+      @created="handleWorkspaceCreated"
+    />
   </div>
 </template>
 
@@ -345,9 +374,16 @@ async function handleLogout(): Promise<void> {
   border-radius: 50%;
 }
 
-.workspace-switcher {
-  width: 100%;
+.workspace-switcher-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 7px 0 16px;
+}
+
+.workspace-switcher {
+  min-width: 0;
+  flex: 1;
 }
 
 .workspace-switcher :deep(.el-select__wrapper) {
@@ -367,6 +403,27 @@ async function handleLogout(): Promise<void> {
   margin-left: 8px;
   color: var(--bl-muted);
   font-size: 12px;
+}
+
+.workspace-create-button {
+  display: grid;
+  width: 40px;
+  height: 49px;
+  flex: 0 0 40px;
+  place-items: center;
+  color: #8ebef5;
+  cursor: pointer;
+  background: #182029;
+  border: 1px solid #29333f;
+  border-radius: 9px;
+  transition: 160ms ease;
+}
+
+.workspace-create-button:hover {
+  color: #fff;
+  background: #1d2d40;
+  border-color: #357cc8;
+  box-shadow: 0 0 0 3px rgb(49 140 255 / 8%);
 }
 
 .sidebar-nav {

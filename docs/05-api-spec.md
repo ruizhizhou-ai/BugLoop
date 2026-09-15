@@ -205,6 +205,9 @@ Response data：
 POST /api/workspaces
 ```
 
+权限：仅 `SYSTEM_ADMIN`，或已在任一工作空间担任 `OWNER / ADMIN` 的用户可以创建；
+其他普通用户返回 `40301`。
+
 Request：
 
 ```Json

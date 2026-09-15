@@ -54,10 +54,10 @@ class WorkspaceControllerTest {
 
     @Test
     void 创建后应成为Owner并能在列表和详情中切换() throws Exception {
-        register("system_admin");
+        Session systemAdmin = register("system_admin");
         Session owner = register("owner");
 
-        long workspaceId = createWorkspace(owner.token(), " 研发中心 ");
+        long workspaceId = createWorkspaceAsManager(systemAdmin, owner, " 研发中心 ");
 
         mockMvc.perform(get("/api/workspaces").header("Authorization", bearer(owner.token())))
                 .andExpect(status().isOk())
@@ -88,11 +88,11 @@ class WorkspaceControllerTest {
 
     @Test
     void 成员管理应校验重复关系和角色权限() throws Exception {
-        register("system_admin");
+        Session systemAdmin = register("system_admin");
         Session owner = register("owner");
         Session member = register("member");
         Session another = register("another");
-        long workspaceId = createWorkspace(owner.token(), "研发中心");
+        long workspaceId = createWorkspaceAsManager(systemAdmin, owner, "研发中心");
 
         addMember(owner.token(), workspaceId, member.userId(), "MEMBER")
                 .andExpect(status().isOk())
@@ -132,13 +132,13 @@ class WorkspaceControllerTest {
 
     @Test
     void 成员管理者可搜索未加入空间的启用用户() throws Exception {
-        register("system_admin");
+        Session systemAdmin = register("system_admin");
         Session owner = register("owner");
         Session joinedCandidate = register("candidate_joined");
         Session availableCandidate = register("candidate_available");
         Session disabledCandidate = register("candidate_disabled");
         Session ordinaryMember = register("ordinary_member");
-        long workspaceId = createWorkspace(owner.token(), "用户选择空间");
+        long workspaceId = createWorkspaceAsManager(systemAdmin, owner, "用户选择空间");
         addMember(owner.token(), workspaceId, joinedCandidate.userId(), "MEMBER")
                 .andExpect(status().isOk());
         addMember(owner.token(), workspaceId, ordinaryMember.userId(), "MEMBER")
@@ -165,7 +165,7 @@ class WorkspaceControllerTest {
         Session systemAdmin = register("system_admin");
         Session owner = register("owner");
         Session outsider = register("outsider");
-        long workspaceId = createWorkspace(owner.token(), "隔离空间");
+        long workspaceId = createWorkspaceAsManager(systemAdmin, owner, "隔离空间");
 
         mockMvc.perform(get("/api/workspaces/{id}", workspaceId)
                         .header("Authorization", bearer(outsider.token())))
@@ -180,10 +180,10 @@ class WorkspaceControllerTest {
 
     @Test
     void 最后一个Owner不能降级且主要负责人应随Owner转移() throws Exception {
-        register("system_admin");
+        Session systemAdmin = register("system_admin");
         Session owner = register("owner");
         Session nextOwner = register("next_owner");
-        long workspaceId = createWorkspace(owner.token(), "Owner 规则");
+        long workspaceId = createWorkspaceAsManager(systemAdmin, owner, "Owner 规则");
 
         updateRole(owner.token(), workspaceId, owner.userId(), "MEMBER")
                 .andExpect(status().isConflict())
@@ -206,7 +206,7 @@ class WorkspaceControllerTest {
         Session owner = register("owner");
         Session admin = register("admin");
         Session newMember = register("new_member");
-        long workspaceId = createWorkspace(owner.token(), "待停用空间");
+        long workspaceId = createWorkspaceAsManager(systemAdmin, owner, "待停用空间");
         addMember(owner.token(), workspaceId, admin.userId(), "ADMIN")
                 .andExpect(status().isOk());
 
@@ -252,10 +252,10 @@ class WorkspaceControllerTest {
 
     @Test
     void 承担未关闭Bug责任的成员不能移除() throws Exception {
-        register("system_admin");
+        Session systemAdmin = register("system_admin");
         Session owner = register("owner");
         Session member = register("member");
-        long workspaceId = createWorkspace(owner.token(), "Bug 责任空间");
+        long workspaceId = createWorkspaceAsManager(systemAdmin, owner, "Bug 责任空间");
         addMember(owner.token(), workspaceId, member.userId(), "MEMBER")
                 .andExpect(status().isOk());
 
@@ -278,7 +278,8 @@ class WorkspaceControllerTest {
         Session systemAdmin = register("system_admin");
         Session owner = register("owner");
         Session member = register("member");
-        long firstWorkspaceId = createWorkspace(owner.token(), "第一个空间");
+        Session unassigned = register("unassigned");
+        long firstWorkspaceId = createWorkspaceAsManager(systemAdmin, owner, "第一个空间");
         addMember(owner.token(), firstWorkspaceId, member.userId(), "MEMBER")
                 .andExpect(status().isOk());
 
@@ -294,6 +295,15 @@ class WorkspaceControllerTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value(40301));
 
+        mockMvc.perform(post("/api/workspaces")
+                        .header("Authorization", bearer(unassigned.token()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"无空间普通用户也不能创建","description":null}
+                                """))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(40301));
+
         updateRole(owner.token(), firstWorkspaceId, member.userId(), "ADMIN")
                 .andExpect(status().isOk());
         createWorkspace(member.token(), "升级为管理员后创建的空间");
@@ -301,10 +311,10 @@ class WorkspaceControllerTest {
 
     @Test
     void 非法角色应返回参数错误而不是系统异常() throws Exception {
-        register("system_admin");
+        Session systemAdmin = register("system_admin");
         Session owner = register("owner");
         Session member = register("member");
-        long workspaceId = createWorkspace(owner.token(), "参数校验空间");
+        long workspaceId = createWorkspaceAsManager(systemAdmin, owner, "参数校验空间");
 
         addMember(owner.token(), workspaceId, member.userId(), "SUPER_ADMIN")
                 .andExpect(status().isBadRequest())
@@ -336,6 +346,22 @@ class WorkspaceControllerTest {
                 .andReturn();
         Number workspaceId = JsonPath.read(result.getResponse().getContentAsString(), "$.data.id");
         return workspaceId.longValue();
+    }
+
+    /**
+     * 先由系统管理员在隔离空间授予 ADMIN，再验证管理员创建目标空间并自动成为 OWNER。
+     * 创建完成后移除临时成员关系，避免授权空间干扰“我的空间”列表断言。
+     */
+    private long createWorkspaceAsManager(Session systemAdmin, Session manager, String name) throws Exception {
+        long permissionWorkspaceId = createWorkspace(systemAdmin.token(), name.trim() + "-权限空间");
+        addMember(systemAdmin.token(), permissionWorkspaceId, manager.userId(), "ADMIN")
+                .andExpect(status().isOk());
+        long workspaceId = createWorkspace(manager.token(), name);
+        mockMvc.perform(delete("/api/workspaces/{workspaceId}/members/{userId}",
+                        permissionWorkspaceId, manager.userId())
+                        .header("Authorization", bearer(systemAdmin.token())))
+                .andExpect(status().isOk());
+        return workspaceId;
     }
 
     private org.springframework.test.web.servlet.ResultActions addMember(
