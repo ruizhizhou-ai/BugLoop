@@ -580,7 +580,7 @@ async function handleLogout(): Promise<void> {
 }
 
 .utility-panel strong {
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .utility-panel p {
@@ -631,7 +631,7 @@ async function handleLogout(): Promise<void> {
 .account-name {
   max-width: 110px;
   overflow: hidden;
-  font-size: 14px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

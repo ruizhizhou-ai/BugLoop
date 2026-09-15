@@ -247,7 +247,7 @@ async function runAction(action: () => Promise<void>): Promise<boolean> {
 .page-heading p {
   margin: 0;
   color: var(--bl-text-secondary);
-  font-size: 14px;
+  font-size: 13px;
 }
 .primary-action {
   display: inline-flex;

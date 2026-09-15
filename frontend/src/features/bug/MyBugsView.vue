@@ -177,7 +177,7 @@ function openBug(bugId: number): void {
 .page-heading p {
   margin: 0;
   color: var(--bl-text-secondary);
-  font-size: 14px;
+  font-size: 13px;
 }
 .page-alert {
   display: flex;

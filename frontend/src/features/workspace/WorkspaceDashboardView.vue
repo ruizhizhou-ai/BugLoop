@@ -397,7 +397,7 @@ function avatarText(bug: BugSummary): string {
 .dashboard-hero p {
   margin: 0;
   color: var(--bl-text-secondary);
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .dashboard-hero__actions {
@@ -414,7 +414,7 @@ function avatarText(bug: BugSummary): string {
   padding: 0 21px;
   color: #e8eef6;
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
   border: 1px solid #303a46;
   border-radius: 8px;
@@ -502,7 +502,7 @@ function avatarText(bug: BugSummary): string {
 
 .metric-card__label {
   color: #aeb8c6;
-  font-size: 14px;
+  font-size: 13px;
 }
 
 .metric-card strong {
@@ -841,7 +841,7 @@ button.recent-table__row:hover {
 
 .workspace-panel__motto strong {
   color: #e6edf6;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.45;
 }
 

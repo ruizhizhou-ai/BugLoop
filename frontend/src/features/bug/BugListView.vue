@@ -736,7 +736,7 @@ function avatarTone(user: { id: number } | null): string {
 .bug-list__page-heading p {
   margin: 0;
   color: var(--bl-text-secondary);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.5;
 }
 

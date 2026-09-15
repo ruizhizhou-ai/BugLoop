@@ -2,18 +2,43 @@
  * 本文件定义 BugLoop 全局深色设计系统，并统一覆盖 Element Plus 基础组件外观。
  * 页面局部布局仍保留在各自组件中，颜色、边框和交互反馈从此处继承。
  */
+/* 自托管 Inter 可变字体（100-900 字重，随 @fontsource 包引入），只声明页面用得到的
+   latin 子集；中文没有对应字形，会继续沿字体栈落到苹方等中文字体。 */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2')
+    format('woff2-variations');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
   font-family:
     Inter,
     'PingFang SC',
-    'Microsoft YaHei',
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
     sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+/* 字号整体略微收紧：只缩 Element Plus 组件基准，页面自定义字号在各自组件内调整。
+   选择器带 data-theme 的理由同下方主题变量：按需加载的 base.css 会覆盖裸 :root。 */
+:root[data-theme] {
+  --el-font-size-base: 13px;
+  --el-font-size-small: 12px;
+  --el-font-size-extra-small: 11px;
+}
+
+/* Markdown 编辑器与预览自带字体栈，统一回页面字体，避免同一屏出现两种中文字体。 */
+:root[data-theme] .md-editor,
+:root[data-theme] .md-editor-modal,
+:root[data-theme] .md-editor-preview-wrapper,
+:root[data-theme] .md-editor-preview {
+  font-family: inherit;
 }
 
 /* 深色是默认视觉。选择器必须带 data-theme：按需引入的 Element Plus base.css 同样把变量定义在

@@ -1120,7 +1120,7 @@ onBeforeUnmount(clearImagePreviewUrl)
   min-width: 0;
   overflow: hidden;
   color: var(--bl-text);
-  font-size: 14px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1307,7 +1307,7 @@ onBeforeUnmount(clearImagePreviewUrl)
   flex: 0 0 auto;
   place-items: center;
   color: white;
-  font-size: 14px;
+  font-size: 13px;
   background: linear-gradient(145deg, #257be8, #4ca0ff);
   border-radius: 50%;
 }
@@ -1529,7 +1529,7 @@ onBeforeUnmount(clearImagePreviewUrl)
   align-items: center;
   gap: 10px;
   color: var(--bl-text-secondary);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
 }
 
@@ -1539,7 +1539,7 @@ onBeforeUnmount(clearImagePreviewUrl)
   min-width: 0;
   margin: 0;
   color: var(--bl-text);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.5;
   word-break: break-word;
 }
