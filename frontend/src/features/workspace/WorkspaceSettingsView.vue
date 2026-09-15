@@ -288,13 +288,15 @@ async function runAction(action: () => Promise<void>): Promise<boolean> {
 }
 .workspace-overview {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 30px;
+  gap: 22px 30px;
   padding: 24px;
 }
 .workspace-overview__identity {
   display: flex;
+  flex: 1 1 260px;
   min-width: 260px;
   align-items: center;
   gap: 15px;
@@ -325,10 +327,11 @@ async function runAction(action: () => Promise<void>): Promise<boolean> {
   color: var(--bl-muted);
   font-size: 12px;
 }
+/* 四个字段并排需要约 520px，空间不足时整组换到下一行，避免被逐列压成竖排文字或时间折行。 */
 .workspace-overview dl {
   display: grid;
-  flex: 1;
-  grid-template-columns: repeat(4, 1fr);
+  flex: 1 1 520px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin: 0;
 }
 .workspace-overview dl div {
@@ -413,6 +416,7 @@ async function runAction(action: () => Promise<void>): Promise<boolean> {
   }
   .workspace-overview dl {
     width: 100%;
+    flex-basis: auto;
   }
 }
 @media (max-width: 620px) {

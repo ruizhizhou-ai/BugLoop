@@ -740,11 +740,16 @@ button.recent-table__row:hover {
   text-align: center;
 }
 
+/* 首页左栏最宽约 990px，三列并排至少需要 1110px，因此固定为两行：
+   上行空间标识与标语，下行四个字段整行平分，避免字段被逐列压成竖排。 */
 .workspace-panel__content {
   display: grid;
-  grid-template-columns: minmax(250px, 1fr) 1.25fr minmax(230px, 0.8fr);
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'identity motto'
+    'facts facts';
   align-items: center;
-  gap: 22px;
+  gap: 16px 22px;
   margin: 0 22px 16px;
   padding: 15px 18px;
   background: rgb(24 32 41 / 50%);
@@ -752,11 +757,22 @@ button.recent-table__row:hover {
   border-radius: 8px;
 }
 
+.workspace-facts div:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+
 .workspace-identity {
   display: flex;
+  grid-area: identity;
   min-width: 0;
   align-items: center;
   gap: 14px;
+}
+
+/* 说明文字为单行省略，所在列必须允许收缩，否则会溢出到标语块下方造成重叠。 */
+.workspace-identity > div {
+  min-width: 0;
 }
 
 .workspace-identity__logo {
@@ -778,7 +794,7 @@ button.recent-table__row:hover {
 }
 
 .workspace-identity p {
-  max-width: 300px;
+  max-width: min(100%, 300px);
   margin: 5px 0 0;
   overflow: hidden;
   color: #7d8b9c;
@@ -789,8 +805,11 @@ button.recent-table__row:hover {
 
 .workspace-facts {
   display: grid;
+  grid-area: facts;
   grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding-top: 14px;
   margin: 0;
+  border-top: 1px solid #26303a;
 }
 
 .workspace-facts div {
@@ -815,6 +834,7 @@ button.recent-table__row:hover {
 }
 
 .workspace-panel__motto {
+  grid-area: motto;
   padding-left: 28px;
   border-left: 1px solid #303844;
 }
@@ -978,22 +998,6 @@ button.recent-table__row:hover {
   }
 }
 
-@media (max-width: 900px) {
-  .workspace-panel__content {
-    grid-template-columns: 1fr;
-  }
-
-  .workspace-panel__motto {
-    padding: 15px 0 0;
-    border-top: 1px solid #303844;
-    border-left: 0;
-  }
-
-  .workspace-facts div:first-child {
-    border-left: 0;
-  }
-}
-
 @media (max-width: 650px) {
   .dashboard-hero {
     flex-direction: column;
@@ -1014,6 +1018,7 @@ button.recent-table__row:hover {
   }
 
   .workspace-facts div:nth-child(odd) {
+    padding-left: 0;
     border-left: 0;
   }
 }
