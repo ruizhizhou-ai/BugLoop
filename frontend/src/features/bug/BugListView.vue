@@ -135,14 +135,18 @@ onMounted(() => {
   void loadBugs()
 })
 
-/** 根据侧栏入口设置人员和状态筛选，让个人工作视图直接复用标准列表能力。 */
+/**
+ * 根据侧栏入口设置人员和状态筛选，让个人工作视图直接复用标准列表能力。
+ * 多个入口共用同一个列表组件，进入任何入口都要先清空上一个入口遗留的条件，
+ * 否则从「待我验收」切回「Bug 列表」会继续沿用验收人的筛选。
+ */
 function applyRoutePreset(): void {
+  bugStore.resetQuery()
   const preset = route.meta?.bugListPreset
   const userId = auth.user?.id
   if (!preset || !userId) {
     return
   }
-  bugStore.resetQuery()
   if (preset === 'submitted') bugStore.query.creatorId = userId
   if (preset === 'assigned') bugStore.query.assigneeId = userId
   if (preset === 'acceptance') {

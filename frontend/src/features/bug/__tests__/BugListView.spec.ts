@@ -9,6 +9,8 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import BugListView from '../BugListView.vue'
 import * as bugApi from '../bugApi'
+import { useBugStore } from '../bugStore'
+import { useAuthStore } from '@/features/auth/authStore'
 import type { BugSummary } from '../bugApi'
 
 vi.mock('../bugApi', () => ({
@@ -119,6 +121,55 @@ describe('BugListView', () => {
     routeState.meta = {}
     localStorage.removeItem('bugloop.bugListFilters')
     localStorage.removeItem('bugloop.bugListFiltersCollapsed')
+  })
+
+  it('进入列表入口时应清空上一个入口遗留的筛选条件', async () => {
+    vi.mocked(bugApi.fetchBugs).mockResolvedValue({
+      records: [],
+      total: 0,
+      page: 1,
+      pageSize: 20,
+    })
+    const store = useBugStore()
+    // 模拟从「待我验收」切回：Store 中仍保留上一个入口的预置条件
+    store.query.acceptorId = 10
+    store.query.status = 'WAIT_ACCEPTANCE'
+
+    mountList()
+    await vi.waitFor(() => expect(bugApi.fetchBugs).toHaveBeenCalled())
+
+    expect(store.query.acceptorId).toBeUndefined()
+    expect(store.query.status).toBeUndefined()
+    const calls = vi.mocked(bugApi.fetchBugs).mock.calls
+    const params = calls[calls.length - 1]?.[1]
+    expect(params?.acceptorId).toBeUndefined()
+    expect(params?.status).toBeUndefined()
+  })
+
+  it('进入「待我验收」入口时应应用验收人预置条件', async () => {
+    const auth = useAuthStore()
+    auth.user = {
+      id: 10,
+      username: 'owner',
+      displayName: '张三',
+      systemRole: 'USER',
+      createdAt: '2026-09-14T09:00:00',
+    }
+    routeState.meta = { bugListPreset: 'acceptance' }
+    vi.mocked(bugApi.fetchBugs).mockResolvedValue({
+      records: [],
+      total: 0,
+      page: 1,
+      pageSize: 20,
+    })
+
+    mountList()
+    await vi.waitFor(() => expect(bugApi.fetchBugs).toHaveBeenCalled())
+
+    const calls = vi.mocked(bugApi.fetchBugs).mock.calls
+    const params = calls[calls.length - 1]?.[1]
+    expect(params?.acceptorId).toBe(10)
+    expect(params?.status).toBe('WAIT_ACCEPTANCE')
   })
 
   it('筛选区可以整体收起，只保留列表清单且不清空已选条件', async () => {
