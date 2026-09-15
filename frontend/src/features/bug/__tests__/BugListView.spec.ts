@@ -2,7 +2,7 @@
  * 本文件验证 Bug 列表页的渲染、空状态与新建入口的角色和空间状态控制。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent, h, type VNode } from 'vue'
+import { defineComponent, h, nextTick, type VNode } from 'vue'
 
 import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -121,6 +121,36 @@ describe('BugListView', () => {
     routeState.meta = {}
     localStorage.removeItem('bugloop.bugListFilters')
     localStorage.removeItem('bugloop.bugListFiltersCollapsed')
+  })
+
+  it('输入关键字后应防抖自动查询，无需按回车', async () => {
+    vi.mocked(bugApi.fetchBugs).mockResolvedValue({
+      records: [],
+      total: 0,
+      page: 1,
+      pageSize: 20,
+    })
+    const store = useBugStore()
+    mountList()
+    await vi.waitFor(() => expect(bugApi.fetchBugs).toHaveBeenCalledTimes(1))
+
+    vi.useFakeTimers()
+    try {
+      store.query.keyword = '错位'
+      await nextTick()
+
+      vi.advanceTimersByTime(299)
+      expect(bugApi.fetchBugs).toHaveBeenCalledTimes(1)
+
+      vi.advanceTimersByTime(1)
+      await nextTick()
+      await nextTick()
+      expect(bugApi.fetchBugs).toHaveBeenCalledTimes(2)
+      const calls = vi.mocked(bugApi.fetchBugs).mock.calls
+      expect(calls[1]?.[1]).toMatchObject({ page: 1, keyword: '错位' })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('进入列表入口时应清空上一个入口遗留的筛选条件', async () => {

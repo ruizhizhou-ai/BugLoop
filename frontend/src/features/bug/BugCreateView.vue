@@ -2,18 +2,8 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import {
-  ElAlert,
-  ElButton,
-  ElCard,
-  ElForm,
-  ElFormItem,
-  ElInput,
-  ElOption,
-  ElSelect,
-} from 'element-plus'
+import { ElButton, ElCard, ElForm, ElFormItem, ElInput, ElOption, ElSelect } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
-import 'element-plus/es/components/alert/style/css'
 import 'element-plus/es/components/button/style/css'
 import 'element-plus/es/components/card/style/css'
 import 'element-plus/es/components/form/style/css'
@@ -35,6 +25,7 @@ import {
 import type { BugCreated, BugPriority } from './bugApi'
 import { useAuthStore } from '@/features/auth/authStore'
 import { useWorkspaceStore } from '@/features/workspace/workspaceStore'
+import AppNotice from '@/shared/components/AppNotice.vue'
 import { isApiError } from '@/shared/api/types'
 
 const route = useRoute()
@@ -161,14 +152,7 @@ function goBack(): void {
         </div>
       </template>
 
-      <el-alert
-        v-if="errorMessage"
-        class="bug-create__alert"
-        :title="errorMessage"
-        type="error"
-        :closable="false"
-        show-icon
-      />
+      <app-notice v-if="errorMessage" :message="errorMessage" @close="errorMessage = ''" />
 
       <el-form
         ref="formRef"
@@ -278,10 +262,6 @@ function goBack(): void {
   margin: 0;
   color: #f0f5fb;
   font-size: 21px;
-}
-
-.bug-create__alert {
-  margin-bottom: 16px;
 }
 
 .bug-create__editor {

@@ -31,6 +31,7 @@ defineProps<{
     | 'clock'
     | 'paperclip'
     | 'filter'
+    | 'alert'
   size?: number
 }>()
 </script>
@@ -139,6 +140,10 @@ defineProps<{
     </template>
     <template v-else-if="name === 'filter'">
       <path d="M4 6h16M7 12h10M10 18h4" />
+    </template>
+    <template v-else-if="name === 'alert'">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v5M12 16.5h.01" />
     </template>
     <template v-else>
       <path d="M6 6l12 12M18 6 6 18" />

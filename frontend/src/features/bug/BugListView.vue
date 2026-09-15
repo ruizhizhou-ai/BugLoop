@@ -1,9 +1,8 @@
 <!-- 本文件实现 Bug 列表页：筛选、分页、状态与人员展示，并提供新建入口。 -->
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ElAlert,
   ElButton,
   ElCard,
   ElCheckbox,
@@ -19,7 +18,6 @@ import {
   ElTable,
   ElTableColumn,
 } from 'element-plus'
-import 'element-plus/es/components/alert/style/css'
 import 'element-plus/es/components/button/style/css'
 import 'element-plus/es/components/card/style/css'
 import 'element-plus/es/components/checkbox/style/css'
@@ -48,6 +46,7 @@ import { useAuthStore } from '@/features/auth/authStore'
 import { useWorkspaceStore } from '@/features/workspace/workspaceStore'
 import { isApiError } from '@/shared/api/types'
 import AppIcon from '@/shared/components/AppIcon.vue'
+import AppNotice from '@/shared/components/AppNotice.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -157,6 +156,8 @@ function applyRoutePreset(): void {
 
 /** 切换工作空间时清空筛选，避免把上一个空间的条件带过来。 */
 async function loadBugs(): Promise<void> {
+  // 已经在按当前条件取数后，等待中的关键字防抖没有意义，取消它避免重复请求。
+  window.clearTimeout(keywordTimer)
   errorMessage.value = ''
   try {
     await bugStore.loadBugs(workspaceId.value)
@@ -170,6 +171,26 @@ async function applyFilters(): Promise<void> {
   bugStore.query.page = 1
   await loadBugs()
 }
+
+const KEYWORD_DEBOUNCE_DELAY = 300
+let keywordTimer: number | undefined
+
+// 关键字输入停顿后自动查询，输入部分编号或标题片段即可看到模糊匹配结果。
+watch(
+  () => bugStore.query.keyword,
+  () => {
+    window.clearTimeout(keywordTimer)
+    keywordTimer = window.setTimeout(() => void applyFilters(), KEYWORD_DEBOUNCE_DELAY)
+  },
+)
+
+/** 回车或清空时立即查询，并取消等待中的防抖，避免紧接着的重复请求。 */
+function applyKeywordNow(): void {
+  window.clearTimeout(keywordTimer)
+  void applyFilters()
+}
+
+onBeforeUnmount(() => window.clearTimeout(keywordTimer))
 
 /** 重置全部筛选条件，并恢复默认的全部展开状态。 */
 async function resetFilters(): Promise<void> {
@@ -374,15 +395,7 @@ function avatarTone(user: { id: number } | null): string {
       </el-button>
     </header>
 
-    <el-alert
-      v-if="errorMessage"
-      class="bug-list__alert"
-      :title="errorMessage"
-      type="error"
-      :closable="true"
-      show-icon
-      @close="errorMessage = ''"
-    />
+    <app-notice v-if="errorMessage" :message="errorMessage" @close="errorMessage = ''" />
 
     <el-card class="bug-list__card bug-list__filter-panel" shadow="never">
       <div class="bug-list__filter-layout">
@@ -392,8 +405,8 @@ function avatarTone(user: { id: number } | null): string {
           class="filter-item filter-item--keyword"
           placeholder="搜索编号或标题"
           clearable
-          @keyup.enter="applyFilters"
-          @clear="applyFilters"
+          @keyup.enter="applyKeywordNow"
+          @clear="applyKeywordNow"
         >
           <template #prefix><AppIcon name="search" :size="17" /></template>
         </el-input>
@@ -735,10 +748,6 @@ function avatarTone(user: { id: number } | null): string {
   font-size: 15px;
   font-weight: 600;
   box-shadow: 0 8px 24px rgb(25 117 238 / 24%);
-}
-
-.bug-list__alert {
-  margin-bottom: 16px;
 }
 
 .bug-list__card {

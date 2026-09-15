@@ -382,6 +382,12 @@ describe('BugDetailView', () => {
 
     expect(storeMocks.addComment).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('评论内容不能为空')
+
+    // 错误以居中浮层展示，并可手动关闭，不再依赖页面顶部的提示条。
+    const notice = wrapper.get('.app-notice')
+    expect(notice.attributes('role')).toBe('alert')
+    await notice.get('.app-notice__close').trigger('click')
+    expect(wrapper.find('.app-notice').exists()).toBe(false)
   })
 
   it('关闭后的 Bug 不再显示附件附加入口', async () => {

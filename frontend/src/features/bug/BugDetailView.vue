@@ -3,7 +3,6 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ElAlert,
   ElButton,
   ElCard,
   ElDialog,
@@ -18,7 +17,6 @@ import {
   ElTimeline,
   ElTimelineItem,
 } from 'element-plus'
-import 'element-plus/es/components/alert/style/css'
 import 'element-plus/es/components/button/style/css'
 import 'element-plus/es/components/card/style/css'
 import 'element-plus/es/components/dialog/style/css'
@@ -52,6 +50,7 @@ import type { BugAttachment, BugPriority } from './bugApi'
 import { useAuthStore } from '@/features/auth/authStore'
 import { useWorkspaceStore } from '@/features/workspace/workspaceStore'
 import AppIcon from '@/shared/components/AppIcon.vue'
+import AppNotice from '@/shared/components/AppNotice.vue'
 import { downloadFile } from '@/shared/api/http'
 import { isApiError } from '@/shared/api/types'
 
@@ -467,15 +466,7 @@ onBeforeUnmount(clearImagePreviewUrl)
     class="bug-detail"
     :class="{ 'bug-detail--drawer': drawerMode }"
   >
-    <el-alert
-      v-if="errorMessage"
-      class="bug-detail__alert"
-      :title="errorMessage"
-      type="error"
-      :closable="true"
-      show-icon
-      @close="errorMessage = ''"
-    />
+    <app-notice v-if="errorMessage" :message="errorMessage" @close="errorMessage = ''" />
 
     <div v-if="bugStore.detailLoading" class="bug-detail__loading" aria-label="正在加载详情" />
 
@@ -970,10 +961,6 @@ onBeforeUnmount(clearImagePreviewUrl)
 .bug-detail {
   max-width: 1260px;
   margin: 0 auto;
-}
-
-.bug-detail__alert {
-  margin-bottom: 16px;
 }
 
 .bug-detail__loading {
