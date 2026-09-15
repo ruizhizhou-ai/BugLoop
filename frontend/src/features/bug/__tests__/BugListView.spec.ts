@@ -99,6 +99,8 @@ const stubs = {
   ElOption: RecursiveStub,
   ElPagination: RecursiveStub,
   ElSelect: RecursiveStub,
+  // 真实弹层内容懒渲染在 body 上，桩掉后可直接断言筛选条件菜单。
+  ElPopover: { template: '<div><slot name="reference" /><slot /></div>' },
   BugDetailView: true,
 }
 
@@ -115,9 +117,47 @@ describe('BugListView', () => {
     workspaceState.isEnabled = true
     routeState.query = {}
     routeState.meta = {}
+    localStorage.removeItem('bugloop.bugListFilters')
+    localStorage.removeItem('bugloop.bugListFiltersCollapsed')
   })
 
-  it('默认仅展示关键词搜索，并提供可选筛选条件入口', async () => {
+  it('筛选区可以整体收起，只保留列表清单且不清空已选条件', async () => {
+    vi.mocked(bugApi.fetchBugs).mockResolvedValue({
+      records: [BUG_ROW],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    })
+
+    const wrapper = mountList()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('BUG-000101'))
+    const callsBeforeCollapse = vi.mocked(bugApi.fetchBugs).mock.calls.length
+
+    expect(wrapper.find('.bug-list__filters').attributes('style') ?? '').not.toContain(
+      'display: none',
+    )
+    expect(wrapper.get('.filter-panel-toggle').text()).toContain('收起筛选')
+
+    await wrapper.get('.filter-panel-toggle').trigger('click')
+
+    // v-show 折叠筛选区：jsdom 的 computed display 在样式表存在时不看内联值，直接断言行内样式。
+    expect(wrapper.find('.bug-list__filters').attributes('style')).toContain('display: none')
+    expect(wrapper.find('.filter-panel-toggle').exists()).toBe(true)
+    expect(wrapper.get('.filter-panel-toggle').text()).toContain('展开筛选')
+    expect(wrapper.find('.el-table__body-wrapper tbody tr').exists()).toBe(true)
+    expect(localStorage.getItem('bugloop.bugListFiltersCollapsed')).toBe('1')
+    // 收起只是隐藏界面，不重新查询也不清空结果。
+    expect(vi.mocked(bugApi.fetchBugs).mock.calls.length).toBe(callsBeforeCollapse)
+    expect(wrapper.text()).toContain('BUG-000101')
+
+    await wrapper.get('.filter-panel-toggle').trigger('click')
+    expect(wrapper.find('.bug-list__filters').attributes('style') ?? '').not.toContain(
+      'display: none',
+    )
+    expect(wrapper.get('.filter-panel-toggle').text()).toContain('收起筛选')
+  })
+
+  it('筛选条件默认全部展开，可一键全部隐藏并记住设置', async () => {
     vi.mocked(bugApi.fetchBugs).mockResolvedValue({
       records: [],
       total: 0,
@@ -128,14 +168,36 @@ describe('BugListView', () => {
     const wrapper = mountList()
     await vi.waitFor(() => expect(bugApi.fetchBugs).toHaveBeenCalled())
 
+    for (const cls of [
+      'keyword',
+      'status',
+      'priority',
+      'assignee',
+      'creator',
+      'acceptor',
+      'date',
+    ]) {
+      expect(wrapper.find(`.filter-item--${cls}`).exists()).toBe(true)
+    }
+    expect(wrapper.find('.filter-customize').exists()).toBe(true)
+
+    await wrapper.find('.filter-customize__toggle-all input').setValue(false)
+
     expect(wrapper.find('.filter-item--keyword').exists()).toBe(true)
     expect(wrapper.find('.filter-item--status').exists()).toBe(false)
-    expect(wrapper.find('.filter-item--priority').exists()).toBe(false)
-    expect(wrapper.find('.filter-item--assignee').exists()).toBe(false)
-    expect(wrapper.find('.filter-item--creator').exists()).toBe(false)
-    expect(wrapper.find('.filter-item--acceptor').exists()).toBe(false)
     expect(wrapper.find('.filter-item--date').exists()).toBe(false)
-    expect(wrapper.find('.filter-customize').exists()).toBe(true)
+    expect(JSON.parse(localStorage.getItem('bugloop.bugListFilters') ?? 'null')).toEqual([])
+
+    vi.mocked(bugApi.fetchBugs).mockResolvedValue({
+      records: [],
+      total: 0,
+      page: 1,
+      pageSize: 20,
+    })
+    const remounted = mountList()
+    await vi.waitFor(() => expect(bugApi.fetchBugs).toHaveBeenCalled())
+    expect(remounted.find('.filter-item--keyword').exists()).toBe(true)
+    expect(remounted.find('.filter-item--status').exists()).toBe(false)
   })
 
   it('点击 Bug 后应保留列表路由并用查询参数打开右侧详情', async () => {

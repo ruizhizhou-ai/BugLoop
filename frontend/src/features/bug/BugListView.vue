@@ -68,8 +68,48 @@ const OPTIONAL_FILTER_OPTIONS: Array<{ key: OptionalFilterKey; label: string }> 
   { key: 'acceptor', label: '验收人' },
   { key: 'date', label: '创建时间' },
 ]
-// 初始不主动展开可选项；已有预置值的字段由 isFilterVisible 自动显现。
-const visibleOptionalFilters = ref<OptionalFilterKey[]>([])
+const FILTER_VISIBILITY_STORAGE_KEY = 'bugloop.bugListFilters'
+
+/** 读取保存的筛选项显示设置，没有有效配置时默认全部打开。 */
+function readVisibleOptionalFilters(): OptionalFilterKey[] {
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(FILTER_VISIBILITY_STORAGE_KEY) ?? 'null')
+    if (Array.isArray(saved)) {
+      return saved.filter((key): key is OptionalFilterKey =>
+        OPTIONAL_FILTER_OPTIONS.some((option) => option.key === key),
+      )
+    }
+  } catch {
+    // 存储内容损坏时回退到默认值
+  }
+  return OPTIONAL_FILTER_OPTIONS.map(({ key }) => key)
+}
+
+const visibleOptionalFilters = ref<OptionalFilterKey[]>(readVisibleOptionalFilters())
+
+/** 「全部显示」总开关的回显状态：全选、部分选中或全部隐藏。 */
+const allFiltersVisible = computed(
+  () => visibleOptionalFilters.value.length === OPTIONAL_FILTER_OPTIONS.length,
+)
+const filterSelectionPartial = computed(
+  () => visibleOptionalFilters.value.length > 0 && !allFiltersVisible.value,
+)
+
+/** 记录显示设置，刷新或下次进入列表页时保持同样的筛选布局。 */
+function persistVisibleFilters(keys: OptionalFilterKey[]): void {
+  visibleOptionalFilters.value = keys
+  localStorage.setItem(FILTER_VISIBILITY_STORAGE_KEY, JSON.stringify(keys))
+}
+
+const FILTER_PANEL_COLLAPSED_KEY = 'bugloop.bugListFiltersCollapsed'
+
+// 整个筛选区可以整体收起，只保留列表清单；默认展开并记住用户的选择。
+const filtersCollapsed = ref(localStorage.getItem(FILTER_PANEL_COLLAPSED_KEY) === '1')
+
+function toggleFilterPanel(): void {
+  filtersCollapsed.value = !filtersCollapsed.value
+  localStorage.setItem(FILTER_PANEL_COLLAPSED_KEY, filtersCollapsed.value ? '1' : '0')
+}
 
 const workspaceId = computed(() => Number(route.params.workspaceId))
 const canCreate = computed(() => workspaceStore.isEnabled)
@@ -127,11 +167,11 @@ async function applyFilters(): Promise<void> {
   await loadBugs()
 }
 
-/** 重置全部筛选条件。 */
+/** 重置全部筛选条件，并恢复默认的全部展开状态。 */
 async function resetFilters(): Promise<void> {
   bugStore.resetQuery()
   dateRange.value = null
-  visibleOptionalFilters.value = []
+  persistVisibleFilters(OPTIONAL_FILTER_OPTIONS.map(({ key }) => key))
   await loadBugs()
 }
 
@@ -201,8 +241,22 @@ function handleVisibleFiltersChange(nextValues: Array<string | number | boolean>
   const hiddenKeys = selectedOptionalFilters.value.filter((key) => !nextKeys.includes(key))
   const requiresReload = hiddenKeys.some((key) => hasFilterValue(key))
   hiddenKeys.forEach(clearFilterValue)
-  visibleOptionalFilters.value = nextKeys
+  persistVisibleFilters(nextKeys)
   if (requiresReload) void applyFilters()
+}
+
+/** 「全部显示」总开关：一次切换全部筛选条件，隐藏时同步清除已生效的查询值。 */
+function toggleAllFilters(checked: boolean | string | number): void {
+  if (checked === true) {
+    persistVisibleFilters(OPTIONAL_FILTER_OPTIONS.map(({ key }) => key))
+    return
+  }
+  const hiddenKeys = OPTIONAL_FILTER_OPTIONS.map(({ key }) => key).filter((key) =>
+    hasFilterValue(key),
+  )
+  hiddenKeys.forEach(clearFilterValue)
+  persistVisibleFilters([])
+  if (hiddenKeys.length) void applyFilters()
 }
 
 /** 关键词或任一可选条件已有输入时，提供重置入口以快速回到默认精简状态。 */
@@ -327,7 +381,8 @@ function avatarTone(user: { id: number } | null): string {
     />
 
     <el-card class="bug-list__card bug-list__filter-panel" shadow="never">
-      <div class="bug-list__filters">
+      <div class="bug-list__filter-layout">
+        <div v-show="!filtersCollapsed" class="bug-list__filters">
         <el-input
           v-model="bugStore.query.keyword"
           class="filter-item filter-item--keyword"
@@ -435,7 +490,17 @@ function avatarTone(user: { id: number } | null): string {
             </el-button>
           </template>
           <div class="filter-customize__popover">
-            <strong>显示筛选条件</strong>
+            <div class="filter-customize__heading">
+              <strong>显示筛选条件</strong>
+              <el-checkbox
+                class="filter-customize__toggle-all"
+                :model-value="allFiltersVisible"
+                :indeterminate="filterSelectionPartial"
+                @change="toggleAllFilters"
+              >
+                全部显示
+              </el-checkbox>
+            </div>
             <el-checkbox-group
               :model-value="selectedOptionalFilters"
               @update:model-value="handleVisibleFiltersChange"
@@ -452,6 +517,15 @@ function avatarTone(user: { id: number } | null): string {
         </el-popover>
         <el-button v-if="hasActiveFilters" class="filter-reset" @click="resetFilters">
           重置
+        </el-button>
+        </div>
+        <el-button
+          class="filter-panel-toggle"
+          :aria-expanded="!filtersCollapsed"
+          @click="toggleFilterPanel"
+        >
+          <AppIcon name="filter" :size="16" />
+          {{ filtersCollapsed ? '展开筛选' : '收起筛选' }}
         </el-button>
       </div>
     </el-card>
@@ -680,11 +754,25 @@ function avatarTone(user: { id: number } | null): string {
   padding: 16px 18px;
 }
 
+/* 收起按钮固定在筛选面板右上角；折叠后筛选区隐藏，只留靠右的这一行按钮。 */
+.bug-list__filter-layout {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .bug-list__filters {
   display: flex;
+  flex: 1 1 auto;
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+  min-width: 0;
+}
+
+.filter-panel-toggle {
+  flex: 0 0 auto;
 }
 
 .filter-item {
@@ -751,11 +839,26 @@ function avatarTone(user: { id: number } | null): string {
   padding: 2px;
 }
 
-.filter-customize__popover strong {
-  display: block;
+.filter-customize__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   margin: 3px 4px 9px;
+}
+
+.filter-customize__heading strong {
   color: var(--bl-text);
   font-size: 13px;
+}
+
+.filter-customize__toggle-all {
+  height: 24px;
+}
+
+.filter-customize__toggle-all :deep(.el-checkbox__label) {
+  color: var(--bl-text-secondary);
+  font-size: 12px;
 }
 
 .filter-customize__popover :deep(.el-checkbox-group) {
