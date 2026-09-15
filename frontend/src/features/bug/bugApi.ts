@@ -67,6 +67,55 @@ export interface BugCreated {
   bugNo: string
 }
 
+/** 评论、操作日志和描述历史的展示字段与后端追溯 VO 一一对应。 */
+export interface BugComment {
+  id: number
+  userId: number
+  username: string
+  displayName: string
+  contentMd: string
+  createdAt: string
+}
+
+export interface BugOperationLog {
+  id: number
+  operatorId: number
+  operatorUsername: string
+  operatorDisplayName: string
+  operationType: string
+  fieldName: string | null
+  oldValue: string | null
+  newValue: string | null
+  description: string
+  createdAt: string
+}
+
+export interface BugDescriptionHistoryItem {
+  id: number
+  versionNo: number
+  operatorId: number
+  operatorUsername: string
+  operatorDisplayName: string
+  createdAt: string
+}
+
+export interface BugDescriptionHistoryDetail extends BugDescriptionHistoryItem {
+  contentMd: string
+}
+
+/** 验收历史记录，比详情中的 latestAcceptance 多出完整列表能力。 */
+export interface BugAcceptanceRecord {
+  id: number
+  acceptorId: number
+  acceptorUsername: string
+  acceptorDisplayName: string
+  result: 'PASS' | 'REJECT'
+  commentMd: string | null
+  fromStatus: BugStatus
+  toStatus: BugStatus
+  createdAt: string
+}
+
 export interface BugListQuery {
   page: number
   pageSize: number
@@ -142,4 +191,50 @@ export function acceptBug(bugId: number, commentMd: string | null): Promise<BugD
 
 export function rejectBug(bugId: number, commentMd: string): Promise<BugDetail> {
   return http.post<unknown, BugDetail>(`/bugs/${bugId}/reject`, { commentMd })
+}
+
+export function fetchComments(
+  bugId: number,
+  page: number,
+  pageSize: number,
+): Promise<PageResponse<BugComment>> {
+  return http.get<unknown, PageResponse<BugComment>>(`/bugs/${bugId}/comments`, {
+    params: { page, pageSize },
+  })
+}
+
+export function createComment(bugId: number, contentMd: string): Promise<BugComment> {
+  return http.post<unknown, BugComment>(`/bugs/${bugId}/comments`, { contentMd })
+}
+
+export function fetchOperationLogs(bugId: number): Promise<BugOperationLog[]> {
+  return http.get<unknown, BugOperationLog[]>(`/bugs/${bugId}/logs`)
+}
+
+export function fetchDescriptionHistory(bugId: number): Promise<BugDescriptionHistoryItem[]> {
+  return http.get<unknown, BugDescriptionHistoryItem[]>(`/bugs/${bugId}/description-history`)
+}
+
+export function fetchDescriptionHistoryDetail(
+  bugId: number,
+  versionNo: number,
+): Promise<BugDescriptionHistoryDetail> {
+  return http.get<unknown, BugDescriptionHistoryDetail>(
+    `/bugs/${bugId}/description-history/${versionNo}`,
+  )
+}
+
+export function fetchAcceptances(bugId: number): Promise<BugAcceptanceRecord[]> {
+  return http.get<unknown, BugAcceptanceRecord[]>(`/bugs/${bugId}/acceptances`)
+}
+
+/** 附件以 multipart 提交，axios 会自动补上带 boundary 的 Content-Type。 */
+export function uploadBugAttachment(bugId: number, file: File): Promise<BugAttachment> {
+  const form = new FormData()
+  form.append('file', file)
+  return http.post<unknown, BugAttachment>(`/bugs/${bugId}/attachments`, form)
+}
+
+export function deleteBugAttachment(attachmentId: number): Promise<void> {
+  return http.delete<unknown, void>(`/attachments/${attachmentId}`)
 }

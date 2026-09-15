@@ -9,3 +9,8 @@ spring:
     enabled: true
     locations: classpath:db/migration
     encoding: UTF-8
+
+bugloop:
+  storage:
+    # 测试附件写入构建目录，避免污染开发环境配置的真实附件根目录。
+    root: target/test-attachments

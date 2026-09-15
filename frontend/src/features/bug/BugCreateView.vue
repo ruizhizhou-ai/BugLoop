@@ -26,8 +26,13 @@ import { MdEditor } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 
 import { useBugStore } from './bugStore'
-import { BUG_PRIORITY_OPTIONS } from './bugMeta'
-import type { BugPriority } from './bugApi'
+import {
+  ATTACHMENT_ACCEPT,
+  BUG_PRIORITY_OPTIONS,
+  attachmentValidationError,
+  formatFileSize,
+} from './bugMeta'
+import type { BugCreated, BugPriority } from './bugApi'
 import { useAuthStore } from '@/features/auth/authStore'
 import { useWorkspaceStore } from '@/features/workspace/workspaceStore'
 import { isApiError } from '@/shared/api/types'
@@ -41,6 +46,10 @@ const workspaceStore = useWorkspaceStore()
 const workspaceId = computed(() => Number(route.params.workspaceId))
 const formRef = ref<FormInstance>()
 const errorMessage = ref('')
+const attachmentInput = ref<HTMLInputElement | null>(null)
+const pendingFiles = ref<File[]>([])
+// 附件依赖 Bug 主键，创建成功后立即上传；上传失败时保留该对象并提供进入详情的入口。
+const createdBug = ref<BugCreated | null>(null)
 
 const form = reactive({
   title: '',
@@ -69,6 +78,7 @@ const rules: FormRules = {
   ],
 }
 
+/** 创建 Bug，随后补传选中的附件并跳转详情页。 */
 async function handleSubmit(): Promise<void> {
   if (!formRef.value) {
     return
@@ -87,13 +97,53 @@ async function handleSubmit(): Promise<void> {
       assigneeId: form.assigneeId ?? null,
       acceptorId: form.acceptorId ?? null,
     })
-    await router.push({
-      name: 'bug-detail',
-      params: { workspaceId: workspaceId.value, bugId: created.id },
-    })
+    createdBug.value = created
+
+    const failed = pendingFiles.value.length
+      ? await bugStore.uploadAttachments(created.id, pendingFiles.value)
+      : []
+    if (failed.length) {
+      errorMessage.value = `Bug 已创建（${created.bugNo}），但以下附件上传失败：${failed.join('、')}，可进入详情页重新上传。`
+      return
+    }
+
+    await openDetail()
   } catch (error) {
     errorMessage.value = isApiError(error) ? error.message : '创建 Bug 失败，请稍后重试'
   }
+}
+
+async function openDetail(): Promise<void> {
+  if (!createdBug.value) {
+    return
+  }
+  await router.push({
+    name: 'bug-detail',
+    params: { workspaceId: workspaceId.value, bugId: createdBug.value.id },
+  })
+}
+
+function pickAttachments(): void {
+  attachmentInput.value?.click()
+}
+
+/** 选择文件后逐个做与后端一致的前置校验，不合规的文件直接提示并不入列。 */
+function handleAttachmentsPicked(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  input.value = ''
+  for (const file of files) {
+    const invalidReason = attachmentValidationError(file, pendingFiles.value.length)
+    if (invalidReason) {
+      errorMessage.value = invalidReason
+      continue
+    }
+    pendingFiles.value.push(file)
+  }
+}
+
+function removeAttachment(index: number): void {
+  pendingFiles.value.splice(index, 1)
 }
 
 function goBack(): void {
@@ -179,9 +229,38 @@ function goBack(): void {
           </el-form-item>
         </div>
 
-        <el-button type="primary" :loading="bugStore.submitting" @click="handleSubmit"
+        <el-form-item v-if="!createdBug" label="附件">
+          <input
+            ref="attachmentInput"
+            class="bug-create__file-input"
+            type="file"
+            multiple
+            :accept="ATTACHMENT_ACCEPT"
+            @change="handleAttachmentsPicked"
+          />
+          <div class="bug-create__attachment-picker">
+            <el-button :disabled="bugStore.submitting" @click="pickAttachments">选择文件</el-button>
+            <span>支持 png/jpg/gif/webp/pdf/txt/log，单个不超过 20MB，最多 20 个</span>
+          </div>
+          <ul v-if="pendingFiles.length" class="bug-create__file-list">
+            <li v-for="(file, index) in pendingFiles" :key="file.name + index">
+              <span class="bug-create__file-name">{{ file.name }}</span>
+              <span class="bug-create__file-size">{{ formatFileSize(file.size) }}</span>
+              <el-button link type="danger" class="bug-create__file-remove" @click="removeAttachment(index)"
+                >移除</el-button
+              >
+            </li>
+          </ul>
+        </el-form-item>
+
+        <el-button
+          v-if="!createdBug"
+          type="primary"
+          :loading="bugStore.submitting"
+          @click="handleSubmit"
           >创建</el-button
         >
+        <el-button v-else type="primary" @click="openDetail">进入详情页</el-button>
       </el-form>
     </el-card>
   </main>
@@ -217,6 +296,55 @@ function goBack(): void {
 
 .bug-create__row :deep(.el-form-item) {
   min-width: 200px;
+}
+
+.bug-create__file-input {
+  display: none;
+}
+
+.bug-create__attachment-picker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--bl-muted);
+  font-size: 12px;
+}
+
+.bug-create__file-list {
+  width: 100%;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bug-create__file-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  color: var(--bl-text-secondary);
+  font-size: 13px;
+  border-bottom: 1px solid var(--bl-border);
+}
+
+.bug-create__file-list li:last-child {
+  border-bottom: 0;
+}
+
+.bug-create__file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bug-create__file-size {
+  color: var(--bl-muted);
+  font-size: 12px;
+}
+
+.bug-create__file-remove {
+  margin-left: auto;
 }
 
 .bug-create {

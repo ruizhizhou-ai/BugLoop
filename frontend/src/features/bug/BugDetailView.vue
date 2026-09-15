@@ -6,50 +6,56 @@ import {
   ElAlert,
   ElButton,
   ElCard,
-  ElDescriptions,
-  ElDescriptionsItem,
   ElDialog,
   ElEmpty,
   ElForm,
   ElFormItem,
   ElInput,
   ElOption,
+  ElPopconfirm,
   ElSelect,
   ElTable,
   ElTableColumn,
   ElTag,
+  ElTimeline,
+  ElTimelineItem,
 } from 'element-plus'
 import 'element-plus/es/components/alert/style/css'
 import 'element-plus/es/components/button/style/css'
 import 'element-plus/es/components/card/style/css'
-import 'element-plus/es/components/descriptions/style/css'
-import 'element-plus/es/components/descriptions-item/style/css'
 import 'element-plus/es/components/dialog/style/css'
 import 'element-plus/es/components/empty/style/css'
 import 'element-plus/es/components/form/style/css'
 import 'element-plus/es/components/form-item/style/css'
 import 'element-plus/es/components/input/style/css'
 import 'element-plus/es/components/option/style/css'
+import 'element-plus/es/components/popconfirm/style/css'
 import 'element-plus/es/components/popper/style/css'
 import 'element-plus/es/components/select/style/css'
 import 'element-plus/es/components/table/style/css'
 import 'element-plus/es/components/table-column/style/css'
 import 'element-plus/es/components/tag/style/css'
+import 'element-plus/es/components/timeline/style/css'
+import 'element-plus/es/components/timeline-item/style/css'
 import { MdEditor, MdPreview } from 'md-editor-v3'
+import type { ToolbarNames } from 'md-editor-v3'
 // style.css 同时包含编辑器与预览样式；preview.css 不含编辑器样式，单独引入会导致弹窗内编辑器错乱。
 import 'md-editor-v3/lib/style.css'
 
 import { useBugStore } from './bugStore'
 import {
+  ATTACHMENT_ACCEPT,
   BUG_PRIORITY_OPTIONS,
   PRIORITY_META,
   STATUS_META,
+  attachmentValidationError,
   formatDateTime,
   formatFileSize,
 } from './bugMeta'
-import type { BugPriority } from './bugApi'
+import type { BugAttachment, BugPriority } from './bugApi'
 import { useAuthStore } from '@/features/auth/authStore'
 import { useWorkspaceStore } from '@/features/workspace/workspaceStore'
+import { downloadFile } from '@/shared/api/http'
 import { isApiError } from '@/shared/api/types'
 
 const route = useRoute()
@@ -58,6 +64,17 @@ const bugStore = useBugStore()
 const auth = useAuthStore()
 const workspaceStore = useWorkspaceStore()
 
+const COMMENT_TOOLBARS: ToolbarNames[] = [
+  'bold',
+  'italic',
+  'quote',
+  'unorderedList',
+  'orderedList',
+  'code',
+  'link',
+  'preview',
+]
+
 const errorMessage = ref('')
 const acceptDialogVisible = ref(false)
 const acceptMode = ref<'accept' | 'reject'>('accept')
@@ -65,6 +82,8 @@ const fixDialogVisible = ref(false)
 const personDialogVisible = ref(false)
 const infoDialogVisible = ref(false)
 const previewTab = ref<'comments' | 'logs' | 'history'>('comments')
+const commentDraft = ref('')
+const attachmentInput = ref<HTMLInputElement | null>(null)
 
 const acceptForm = reactive({ commentMd: '' })
 const fixForm = reactive({ fixDescriptionMd: '' })
@@ -113,9 +132,20 @@ const canManagePeople = computed(
 const canEditBasic = computed(
   () => mutable.value && (isManager.value || isCreator.value) && bug.value?.status !== 'CLOSED',
 )
+const canWriteAttachments = computed(() => mutable.value && bug.value?.status !== 'CLOSED')
+const canComment = computed(() => mutable.value)
+const hasMoreComments = computed(() => bugStore.comments.length < bugStore.commentsTotal)
+const historyDialogVisible = computed({
+  get: () => bugStore.historyDetail !== null,
+  set: (visible: boolean) => {
+    if (!visible) bugStore.closeHistoryDetail()
+  },
+})
 
 onMounted(() => {
   void loadDetail()
+  void loadComments()
+  void loadTrace()
 })
 
 async function loadDetail(): Promise<void> {
@@ -123,6 +153,22 @@ async function loadDetail(): Promise<void> {
     await bugStore.loadDetail(bugId.value)
   } catch (error) {
     errorMessage.value = isApiError(error) ? error.message : '加载 Bug 详情失败'
+  }
+}
+
+async function loadComments(): Promise<void> {
+  try {
+    await bugStore.loadComments(bugId.value, 1)
+  } catch (error) {
+    errorMessage.value = isApiError(error) ? error.message : '加载评论失败'
+  }
+}
+
+async function loadTrace(): Promise<void> {
+  try {
+    await bugStore.loadTrace(bugId.value)
+  } catch (error) {
+    errorMessage.value = isApiError(error) ? error.message : '加载追溯记录失败'
   }
 }
 
@@ -242,6 +288,67 @@ async function handleSavePerson(): Promise<void> {
   }
 }
 
+async function handleAddComment(): Promise<void> {
+  const content = commentDraft.value.trim()
+  if (!content) {
+    errorMessage.value = '评论内容不能为空'
+    return
+  }
+  const succeeded = await runAction(() => bugStore.addComment(bugId.value, content))
+  if (succeeded) commentDraft.value = ''
+}
+
+async function handleLoadMoreComments(): Promise<void> {
+  await runAction(() => bugStore.loadComments(bugId.value, bugStore.commentsPage + 1))
+}
+
+function pickAttachment(): void {
+  attachmentInput.value?.click()
+}
+
+/** 选择文件后先做与后端一致的体积和扩展名校验，再交给上传接口。 */
+async function handleAttachmentPicked(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  // 清空选择，保证连续选择同一个文件也能再次触发 change。
+  input.value = ''
+  if (!file) {
+    return
+  }
+  const invalidReason = attachmentValidationError(file, bug.value?.attachments.length ?? 0)
+  if (invalidReason) {
+    errorMessage.value = invalidReason
+    return
+  }
+  await runAction(() => bugStore.uploadAttachment(bugId.value, file))
+}
+
+/** 下载走带鉴权头的二进制请求，成功后用临时链接触发浏览器保存。 */
+async function handleDownload(attachment: BugAttachment): Promise<void> {
+  errorMessage.value = ''
+  try {
+    const { blob, fileName } = await downloadFile(`/attachments/${attachment.id}/download`)
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = fileName || attachment.originalName
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
+  } catch (error) {
+    errorMessage.value = isApiError(error) ? error.message : '附件下载失败，请稍后重试'
+  }
+}
+
+async function handleDeleteAttachment(attachmentId: number): Promise<void> {
+  await runAction(() => bugStore.removeAttachment(bugId.value, attachmentId))
+}
+
+async function openHistoryDetail(versionNo: number): Promise<void> {
+  await runAction(() => bugStore.openHistoryDetail(bugId.value, versionNo))
+}
+
 function goBack(): void {
   void router.push({ name: 'bug-list', params: { workspaceId: workspaceId.value } })
 }
@@ -345,46 +452,90 @@ function goBack(): void {
         <md-preview :model-value="bug.fixDescriptionMd" preview-theme="github" />
       </el-card>
 
-      <el-card v-if="bug.latestAcceptance" shadow="never">
-        <template #header><h3>最近验收记录</h3></template>
-        <el-descriptions :column="2" border>
-          <el-descriptions-item label="结果">
-            <el-tag
-              :type="bug.latestAcceptance.result === 'PASS' ? 'success' : 'danger'"
-              size="small"
-            >
-              {{ bug.latestAcceptance.result === 'PASS' ? '通过' : '驳回' }}
+      <el-card v-if="bugStore.acceptances.length" shadow="never">
+        <template #header><h3>验收记录</h3></template>
+        <div
+          v-for="record in bugStore.acceptances"
+          :key="record.id"
+          class="acceptance-record"
+        >
+          <div class="acceptance-record__head">
+            <el-tag :type="record.result === 'PASS' ? 'success' : 'danger'" size="small">
+              {{ record.result === 'PASS' ? '通过' : '驳回' }}
             </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="验收时间">
-            {{ formatDateTime(bug.latestAcceptance.createdAt) }}
-          </el-descriptions-item>
-          <el-descriptions-item label="状态变化" :span="2">
-            {{ STATUS_META[bug.latestAcceptance.fromStatus].label }} →
-            {{ STATUS_META[bug.latestAcceptance.toStatus].label }}
-          </el-descriptions-item>
-          <el-descriptions-item v-if="bug.latestAcceptance.commentMd" label="验收意见" :span="2">
-            {{ bug.latestAcceptance.commentMd }}
-          </el-descriptions-item>
-        </el-descriptions>
+            <strong>{{ record.acceptorDisplayName }}</strong>
+            <span class="acceptance-record__flow">
+              {{ STATUS_META[record.fromStatus].label }} → {{ STATUS_META[record.toStatus].label }}
+            </span>
+            <span class="acceptance-record__time">{{ formatDateTime(record.createdAt) }}</span>
+          </div>
+          <md-preview
+            v-if="record.commentMd"
+            class="acceptance-record__comment"
+            :model-value="record.commentMd"
+            preview-theme="github"
+          />
+        </div>
       </el-card>
 
       <el-card shadow="never">
-        <template #header><h3>附件</h3></template>
+        <template #header>
+          <div class="card-header-row">
+            <h3>附件</h3>
+            <div v-if="canWriteAttachments" class="attachment-toolbar">
+              <span>单个不超过 20MB，最多 20 个</span>
+              <el-button
+                type="primary"
+                plain
+                :loading="bugStore.submitting"
+                @click="pickAttachment"
+              >
+                上传附件
+              </el-button>
+            </div>
+          </div>
+        </template>
+        <input
+          ref="attachmentInput"
+          class="attachment-input"
+          type="file"
+          :accept="ATTACHMENT_ACCEPT"
+          @change="handleAttachmentPicked"
+        />
         <el-table v-if="bug.attachments.length" :data="bug.attachments" row-key="id">
           <el-table-column prop="originalName" label="文件名" min-width="240" />
           <el-table-column label="大小" width="120">
             <template #default="{ row }">{{ formatFileSize(row.fileSize) }}</template>
           </el-table-column>
-          <el-table-column label="上传时间" width="160">
+          <el-table-column label="上传时间" width="170">
             <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
           </el-table-column>
+          <el-table-column label="操作" width="140">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="handleDownload(row as BugAttachment)"
+                >下载</el-button
+              >
+              <el-popconfirm
+                v-if="canWriteAttachments"
+                title="删除后不可恢复，确认删除该附件吗？"
+                confirm-button-text="删除"
+                cancel-button-text="取消"
+                @confirm="handleDeleteAttachment(row.id)"
+              >
+                <template #reference><el-button link type="danger">删除</el-button></template>
+              </el-popconfirm>
+            </template>
+          </el-table-column>
         </el-table>
-        <el-empty v-else description="附件上传能力将在后续版本开放" :image-size="72" />
+        <el-empty
+          v-else
+          :description="canWriteAttachments ? '暂无附件，可点击右上角上传' : '暂无附件'"
+          :image-size="72"
+        />
       </el-card>
 
-      <section class="detail-preview">
-        <header class="detail-preview__tabs">
+      <section class="detail-trace">
+        <header class="detail-trace__tabs">
           <button
             type="button"
             :class="{ active: previewTab === 'comments' }"
@@ -406,33 +557,77 @@ function goBack(): void {
           >
             文档历史
           </button>
-          <span>后续能力预览</span>
+          <span v-if="bugStore.traceLoading">加载中…</span>
         </header>
-        <div class="detail-preview__body">
-          <span class="detail-preview__avatar">{{
-            (auth.user?.displayName || 'U').slice(0, 1)
-          }}</span>
-          <div>
-            <strong>{{
-              previewTab === 'comments'
-                ? '参与问题讨论'
-                : previewTab === 'logs'
-                  ? '追踪每次状态变化'
-                  : '查看描述修订记录'
-            }}</strong>
-            <p>
-              {{
-                previewTab === 'comments'
-                  ? '评论编辑器与消息提醒将在后续里程碑接入。'
-                  : previewTab === 'logs'
-                    ? '审计日志接口接入后会按时间线展示操作者、动作和状态变化。'
-                    : '历史版本接口接入后可对比并恢复问题描述。'
-              }}
-            </p>
+
+        <div v-if="previewTab === 'comments'" class="detail-trace__body">
+          <div v-if="canComment" class="comment-composer">
+            <md-editor v-model="commentDraft" :toolbars="COMMENT_TOOLBARS" />
+            <div class="comment-composer__footer">
+              <el-button
+                type="primary"
+                :loading="bugStore.submitting"
+                @click="handleAddComment"
+              >
+                发表评论
+              </el-button>
+            </div>
           </div>
-          <button type="button" disabled>
-            {{ previewTab === 'comments' ? '发表评论' : '查看完整记录' }}
-          </button>
+          <p v-else class="detail-trace__hint">工作空间已停用，只允许查看历史评论。</p>
+
+          <div v-if="bugStore.comments.length" class="comment-list">
+            <article v-for="comment in bugStore.comments" :key="comment.id" class="comment-item">
+              <span class="comment-item__avatar">{{
+                (comment.displayName || comment.username || 'U').slice(0, 1)
+              }}</span>
+              <div class="comment-item__body">
+                <div class="comment-item__head">
+                  <strong>{{ comment.displayName }}</strong>
+                  <span>{{ formatDateTime(comment.createdAt) }}</span>
+                </div>
+                <md-preview :model-value="comment.contentMd" preview-theme="github" />
+              </div>
+            </article>
+            <div v-if="hasMoreComments" class="comment-list__more">
+              <el-button text type="primary" @click="handleLoadMoreComments">
+                加载更多评论（{{ bugStore.comments.length }}/{{ bugStore.commentsTotal }}）
+              </el-button>
+            </div>
+          </div>
+          <el-empty v-else description="暂无评论" :image-size="64" />
+        </div>
+
+        <div v-else-if="previewTab === 'logs'" class="detail-trace__body">
+          <el-timeline v-if="bugStore.logs.length" class="trace-timeline">
+            <el-timeline-item
+              v-for="log in bugStore.logs"
+              :key="log.id"
+              :timestamp="formatDateTime(log.createdAt)"
+              placement="top"
+            >
+              <strong>{{ log.operatorDisplayName }}</strong> {{ log.description }}
+            </el-timeline-item>
+          </el-timeline>
+          <el-empty v-else description="暂无操作日志" :image-size="64" />
+        </div>
+
+        <div v-else class="detail-trace__body">
+          <div v-if="bugStore.history.length" class="history-list">
+            <div v-for="item in bugStore.history" :key="item.id" class="history-item">
+              <span class="history-item__version">v{{ item.versionNo }}</span>
+              <strong>{{ item.operatorDisplayName }}</strong>
+              <span class="history-item__time">{{ formatDateTime(item.createdAt) }}</span>
+              <el-button
+                link
+                type="primary"
+                class="history-item__action"
+                @click="openHistoryDetail(item.versionNo)"
+              >
+                查看内容
+              </el-button>
+            </div>
+          </div>
+          <el-empty v-else description="暂无描述修订记录" :image-size="64" />
         </div>
       </section>
     </template>
@@ -533,6 +728,21 @@ function goBack(): void {
         >
       </template>
     </el-dialog>
+
+    <el-dialog v-model="historyDialogVisible" title="历史版本" width="min(92vw, 860px)">
+      <template v-if="bugStore.historyDetail">
+        <p class="history-dialog__meta">
+          v{{ bugStore.historyDetail.versionNo }} ·
+          {{ bugStore.historyDetail.operatorDisplayName }} ·
+          {{ formatDateTime(bugStore.historyDetail.createdAt) }}
+          <span>（仅查看，不支持恢复）</span>
+        </p>
+        <md-preview :model-value="bugStore.historyDetail.contentMd" preview-theme="github" />
+      </template>
+      <template #footer>
+        <el-button @click="bugStore.closeHistoryDetail()">关闭</el-button>
+      </template>
+    </el-dialog>
   </main>
 </template>
 
@@ -598,7 +808,68 @@ function goBack(): void {
   font-size: 13px;
 }
 
-.detail-preview {
+.card-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.attachment-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--bl-muted);
+  font-size: 12px;
+}
+
+.attachment-input {
+  display: none;
+}
+
+.acceptance-record {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--bl-border);
+}
+
+.acceptance-record:first-child {
+  padding-top: 0;
+}
+
+.acceptance-record:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.acceptance-record__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  color: var(--bl-text-secondary);
+  font-size: 13px;
+}
+
+.acceptance-record__head strong {
+  color: var(--bl-text);
+  font-weight: 500;
+}
+
+.acceptance-record__flow {
+  color: var(--bl-muted);
+}
+
+.acceptance-record__time {
+  margin-left: auto;
+  color: var(--bl-muted);
+  font-size: 12px;
+}
+
+.acceptance-record__comment {
+  margin-top: 8px;
+}
+
+.detail-trace {
   margin-bottom: 16px;
   overflow: hidden;
   background: linear-gradient(145deg, #171e26, #141a21);
@@ -606,7 +877,7 @@ function goBack(): void {
   border-radius: 9px;
 }
 
-.detail-preview__tabs {
+.detail-trace__tabs {
   display: flex;
   min-height: 54px;
   align-items: stretch;
@@ -614,7 +885,7 @@ function goBack(): void {
   border-bottom: 1px solid var(--bl-border);
 }
 
-.detail-preview__tabs button {
+.detail-trace__tabs button {
   position: relative;
   padding: 0 14px;
   color: var(--bl-text-secondary);
@@ -624,11 +895,11 @@ function goBack(): void {
   border: 0;
 }
 
-.detail-preview__tabs button.active {
+.detail-trace__tabs button.active {
   color: var(--bl-primary-light);
 }
 
-.detail-preview__tabs button.active::after {
+.detail-trace__tabs button.active::after {
   position: absolute;
   right: 12px;
   bottom: 0;
@@ -638,57 +909,144 @@ function goBack(): void {
   background: var(--bl-primary);
 }
 
-.detail-preview__tabs span {
+.detail-trace__tabs span {
   align-self: center;
   margin-left: auto;
   color: var(--bl-muted);
   font-size: 11px;
 }
 
-.detail-preview__body {
-  display: grid;
-  grid-template-columns: 42px 1fr auto;
-  align-items: center;
-  gap: 14px;
-  padding: 22px;
+.detail-trace__body {
+  padding: 18px 22px;
 }
 
-.detail-preview__avatar {
+.detail-trace__hint {
+  margin: 0 0 14px;
+  color: var(--bl-muted);
+  font-size: 13px;
+}
+
+.comment-composer {
+  margin-bottom: 18px;
+}
+
+.comment-composer__footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.comment-item {
+  display: flex;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--bl-border);
+}
+
+.comment-item:last-child {
+  border-bottom: 0;
+}
+
+.comment-item__avatar {
   display: grid;
-  width: 42px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
   place-items: center;
   color: white;
+  font-size: 14px;
   background: linear-gradient(145deg, #257be8, #4ca0ff);
   border-radius: 50%;
 }
 
-.detail-preview__body strong {
-  color: var(--bl-text);
-  font-size: 13px;
+.comment-item__body {
+  flex: 1;
+  min-width: 0;
 }
 
-.detail-preview__body p {
-  margin: 6px 0 0;
+.comment-item__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
   color: var(--bl-muted);
   font-size: 12px;
 }
 
-.detail-preview__body > button {
-  padding: 8px 13px;
+.comment-item__head strong {
+  color: var(--bl-text);
+  font-size: 13px;
+}
+
+.comment-list__more {
+  padding-top: 10px;
+  text-align: center;
+}
+
+.trace-timeline {
+  padding-top: 4px;
   color: var(--bl-text-secondary);
-  background: var(--bl-control-bg);
-  border: 1px solid var(--bl-control-border);
-  border-radius: 6px;
+  font-size: 13px;
+}
+
+.trace-timeline strong {
+  color: var(--bl-text);
+  font-weight: 500;
+}
+
+.trace-timeline :deep(.el-timeline-item__timestamp) {
+  color: var(--bl-muted);
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  color: var(--bl-text-secondary);
+  font-size: 13px;
+  border-bottom: 1px solid var(--bl-border);
+}
+
+.history-item:last-child {
+  border-bottom: 0;
+}
+
+.history-item strong {
+  color: var(--bl-text);
+  font-weight: 500;
+}
+
+.history-item__version {
+  color: var(--bl-primary-light);
+  font-family: monospace;
+}
+
+.history-item__time {
+  color: var(--bl-muted);
+  font-size: 12px;
+}
+
+.history-item__action {
+  margin-left: auto;
+}
+
+.history-dialog__meta {
+  margin: 0 0 12px;
+  color: var(--bl-muted);
+  font-size: 12px;
 }
 
 @media (max-width: 650px) {
-  .detail-preview__body {
-    grid-template-columns: 42px 1fr;
+  .card-header-row,
+  .acceptance-record__head {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
-  .detail-preview__body > button {
-    grid-column: 1 / -1;
+  .acceptance-record__time {
+    margin-left: 0;
   }
 }
 </style>

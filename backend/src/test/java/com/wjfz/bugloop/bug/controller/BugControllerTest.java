@@ -15,6 +15,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.*;
@@ -268,6 +269,155 @@ public class BugControllerTest {
                 .andExpect(jsonPath("$.data.attachments[0].originalName").value("截图.png"))
                 .andExpect(jsonPath("$.data.attachments[0].storagePath").doesNotExist())
                 .andExpect(jsonPath("$.data.attachments[0].storageName").doesNotExist());
+    }
+
+    /** 评论、日志、描述历史和验收历史必须受同一工作空间边界保护，并返回实际追溯数据。 */
+    @Test
+    protected void 追溯接口应返回评论日志历史和验收记录() throws Exception {
+        long id = createAssigned(owner, "追溯记录");
+        ok(developer, post("/api/bugs/{id}/comments", id)
+                .content("{\"contentMd\":\"测试环境也可复现\"}"))
+                .andExpect(jsonPath("$.data.displayName").value("developer"))
+                .andExpect(jsonPath("$.data.contentMd").value("测试环境也可复现"));
+        ok(tester, get("/api/bugs/{id}/comments", id).param("page", "1").param("pageSize", "10"))
+                .andExpect(jsonPath("$.data.total").value(1))
+                .andExpect(jsonPath("$.data.records[0].username").value("developer"));
+
+        ok(owner, put("/api/bugs/{id}", id).content(updateBody(0, "历史正文")));
+        ok(developer, post("/api/bugs/{id}/start", id));
+        fix(developer, id, "修复内容");
+        ok(developer, post("/api/bugs/{id}/submit", id));
+        ok(tester, post("/api/bugs/{id}/accept", id).content("{\"commentMd\":\"验收通过\"}"));
+
+        ok(owner, get("/api/bugs/{id}/logs", id))
+                .andExpect(jsonPath("$.data[0].operationType").exists())
+                .andExpect(jsonPath("$.data[?(@.operationType == 'ADD_COMMENT')]").isNotEmpty());
+        ok(owner, get("/api/bugs/{id}/description-history", id))
+                .andExpect(jsonPath("$.data[0].versionNo").value(1))
+                .andExpect(jsonPath("$.data[0].contentMd").doesNotExist());
+        ok(owner, get("/api/bugs/{id}/description-history/{versionNo}", id, 1))
+                .andExpect(jsonPath("$.data.contentMd").value("# 原始描述"));
+        ok(owner, get("/api/bugs/{id}/acceptances", id))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].result").value("PASS"))
+                .andExpect(jsonPath("$.data[0].acceptorUsername").value("tester"));
+
+        fail(outsider, get("/api/bugs/{id}/comments", id), 403, 40302);
+        fail(outsider, get("/api/bugs/{id}/logs", id), 403, 40302);
+        fail(outsider, get("/api/bugs/{id}/description-history", id), 403, 40302);
+        fail(outsider, get("/api/bugs/{id}/acceptances", id), 403, 40302);
+    }
+
+    /** 附件接口应校验扩展名、存储下载、逻辑删除和详情摘要同步，内部路径不能暴露。 */
+    @Test
+    protected void 附件上传下载和逻辑删除应完整闭环() throws Exception {
+        long id = createAssigned(owner, "附件闭环");
+        MockMultipartFile textFile = new MockMultipartFile("file", "diagnostic.log", "text/plain",
+                "diagnostic content".getBytes());
+        mockMvc.perform(multipart("/api/bugs/{id}/attachments", id).file(textFile)
+                        .header("Authorization", "Bearer " + developer.token()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.originalName").value("diagnostic.log"))
+                .andExpect(jsonPath("$.data.storagePath").doesNotExist())
+                .andExpect(jsonPath("$.data.storageName").doesNotExist());
+        long attachmentId = jdbc.queryForObject("SELECT id FROM bug_attachment WHERE bug_id = ?", Long.class, id);
+
+        mockMvc.perform(get("/api/attachments/{id}/download", attachmentId)
+                        .header("Authorization", "Bearer " + tester.token()))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString("diagnostic.log")))
+                .andExpect(content().string("diagnostic content"));
+        mockMvc.perform(multipart("/api/bugs/{id}/attachments", id)
+                        .file(new MockMultipartFile("file", "unsafe.exe", "application/octet-stream", new byte[]{1}))
+                        .header("Authorization", "Bearer " + developer.token()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(40001));
+
+        ok(owner, delete("/api/attachments/{id}", attachmentId));
+        ok(owner, get("/api/bugs/{id}", id)).andExpect(jsonPath("$.data.attachments").isEmpty());
+        mockMvc.perform(get("/api/attachments/{id}/download", attachmentId)
+                        .header("Authorization", "Bearer " + owner.token()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(40404));
+        assertThat(count("bug_operation_log", id)).isEqualTo(3);
+    }
+
+    /** 评论与附件写入必须同时遵守成员边界、空间停用和 Bug 关闭三种约束。 */
+    @Test
+    protected void 评论与附件写入遵守成员和关闭状态边界() throws Exception {
+        long id = createAssigned(owner, "写入边界");
+        fail(developer, post("/api/bugs/{id}/comments", id).content("{\"contentMd\":\"  \"}"), 400, 40001);
+        fail(outsider, post("/api/bugs/{id}/comments", id).content("{\"contentMd\":\"越界评论\"}"), 403, 40302);
+        fail(owner, get("/api/bugs/{id}/comments", id).param("page", "0"), 400, 40001);
+        fail(owner, get("/api/bugs/{id}/comments", id).param("pageSize", "101"), 400, 40001);
+
+        upload(id, developer, "diagnostic.log", "content").andExpect(jsonPath("$.code").value(0));
+        long attachmentId = jdbc.queryForObject("SELECT id FROM bug_attachment WHERE bug_id = ?", Long.class, id);
+        mockMvc.perform(get("/api/attachments/{id}/download", attachmentId)
+                        .header("Authorization", "Bearer " + outsider.token()))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value(40302));
+        mockMvc.perform(multipart("/api/bugs/{id}/attachments", id)
+                        .file(new MockMultipartFile("file", "UPPER.LOG", "text/plain", "x".getBytes()))
+                        .header("Authorization", "Bearer " + developer.token()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.originalName").value("UPPER.LOG"));
+        mockMvc.perform(multipart("/api/bugs/{id}/attachments", id)
+                        .file(new MockMultipartFile("file", "noext", "text/plain", new byte[]{1}))
+                        .header("Authorization", "Bearer " + developer.token()))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40001));
+        mockMvc.perform(multipart("/api/bugs/{id}/attachments", id)
+                        .file(new MockMultipartFile("file", "empty.txt", "text/plain", new byte[0]))
+                        .header("Authorization", "Bearer " + developer.token()))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(40001));
+        mockMvc.perform(multipart("/api/bugs/{id}/attachments", id)
+                        .file(new MockMultipartFile("file", "outsider.log", "text/plain", new byte[]{1}))
+                        .header("Authorization", "Bearer " + outsider.token()))
+                .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value(40302));
+
+        ok(owner, post("/api/workspaces/{id}/disable", workspaceId));
+        fail(developer, post("/api/bugs/{id}/comments", id).content("{\"contentMd\":\"停用后评论\"}"), 409, 40901);
+        mockMvc.perform(multipart("/api/bugs/{id}/attachments", id)
+                        .file(new MockMultipartFile("file", "stopped.log", "text/plain", new byte[]{1}))
+                        .header("Authorization", "Bearer " + developer.token()))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value(40901));
+        ok(owner, post("/api/workspaces/{id}/enable", workspaceId));
+
+        ok(developer, post("/api/bugs/{id}/start", id));
+        fix(developer, id, "修复完成");
+        ok(developer, post("/api/bugs/{id}/submit", id));
+        ok(tester, post("/api/bugs/{id}/accept", id).content("{\"commentMd\":\"验证通过\"}"));
+        ok(developer, post("/api/bugs/{id}/comments", id).content("{\"contentMd\":\"关闭后补充说明\"}"));
+        upload(id, developer, "closed.log", "content")
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value(40901));
+        mockMvc.perform(delete("/api/attachments/{id}", attachmentId)
+                        .header("Authorization", "Bearer " + developer.token()))
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value(40901));
+    }
+
+    /** 附件数量上限和历史版本缺失必须返回稳定错误码，而不是落库失败或空响应。 */
+    @Test
+    protected void 附件数量上限与历史版本缺失() throws Exception {
+        long id = createAssigned(owner, "容量边界");
+        for (int index = 0; index < 20; index++) {
+            jdbc.update("""
+                    INSERT INTO bug_attachment
+                        (bug_id, original_name, storage_name, storage_path, file_size, uploader_id, is_deleted, created_at)
+                    VALUES (?, ?, ?, ?, 1, ?, 0, CURRENT_TIMESTAMP)
+                    """, id, "附件%d.log".formatted(index), "internal%d.log".formatted(index),
+                    "1/%d/internal%d.log".formatted(id, index), owner.id());
+        }
+        upload(id, developer, "overflow.log", "content")
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value(40901));
+        jdbc.update("UPDATE bug_attachment SET is_deleted = 1 WHERE bug_id = ? AND original_name = '附件0.log'", id);
+        upload(id, developer, "freed.log", "content").andExpect(jsonPath("$.code").value(0));
+        fail(owner, get("/api/bugs/{id}/description-history/{versionNo}", id, 99), 404, 40405);
+    }
+
+    /** 以指定账号上传一个附件，返回断言链供成功或失败场景复用。 */
+    private ResultActions upload(long bugId, Session session, String fileName, String content) throws Exception {
+        return mockMvc.perform(multipart("/api/bugs/{id}/attachments", bugId)
+                .file(new MockMultipartFile("file", fileName, "text/plain", content.getBytes()))
+                .header("Authorization", "Bearer " + session.token()));
     }
 
     /** 两个同时提交的相同旧版本请求只允许一个成功，且只生成一次描述历史。 */

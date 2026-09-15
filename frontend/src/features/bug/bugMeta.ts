@@ -38,6 +38,27 @@ export function formatDateTime(value: string | null | undefined): string {
   return value.replace('T', ' ').slice(0, 16)
 }
 
+/** 附件白名单、体积和数量上限与后端校验保持一致，用于上传前的前置提示。 */
+export const ATTACHMENT_MAX_SIZE = 20 * 1024 * 1024
+export const ATTACHMENT_MAX_COUNT = 20
+export const ALLOWED_ATTACHMENT_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf', 'txt', 'log']
+export const ATTACHMENT_ACCEPT = ALLOWED_ATTACHMENT_EXTENSIONS.map((ext) => `.${ext}`).join(',')
+
+/** 返回附件不满足上传条件的原因，校验通过时返回 null。 */
+export function attachmentValidationError(file: File, existingCount = 0): string | null {
+  if (file.size > ATTACHMENT_MAX_SIZE) {
+    return '单个附件不能超过 20MB'
+  }
+  const extension = file.name.split('.').pop()?.toLowerCase() ?? ''
+  if (!ALLOWED_ATTACHMENT_EXTENSIONS.includes(extension)) {
+    return `不支持该附件类型：${file.name}`
+  }
+  if (existingCount >= ATTACHMENT_MAX_COUNT) {
+    return `单个 Bug 最多上传 ${ATTACHMENT_MAX_COUNT} 个附件`
+  }
+  return null
+}
+
 /** 把字节数格式化为易读大小，用于附件列表。 */
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) {

@@ -8,7 +8,14 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 import BugDetailView from '../BugDetailView.vue'
-import type { BugDetail } from '../bugApi'
+import type {
+  BugAcceptanceRecord,
+  BugComment,
+  BugDescriptionHistoryDetail,
+  BugDescriptionHistoryItem,
+  BugDetail,
+  BugOperationLog,
+} from '../bugApi'
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { workspaceId: '1', bugId: '101' } }),
@@ -29,10 +36,23 @@ vi.mock('@/features/workspace/workspaceStore', () => ({
   }),
 }))
 
-const detailState = { current: null as BugDetail | null }
+const detailState = {
+  current: null as BugDetail | null,
+  comments: [] as BugComment[],
+  commentsTotal: 0,
+  commentsPage: 1,
+  logs: [] as BugOperationLog[],
+  history: [] as BugDescriptionHistoryItem[],
+  historyDetail: null as BugDescriptionHistoryDetail | null,
+  acceptances: [] as BugAcceptanceRecord[],
+  traceLoading: false,
+}
 const storeMocks = {
   loadDetail: vi.fn<() => Promise<void>>(),
   updateBasic: vi.fn<() => Promise<void>>(),
+  loadComments: vi.fn<() => Promise<void>>(),
+  loadTrace: vi.fn<() => Promise<void>>(),
+  addComment: vi.fn<() => Promise<void>>(),
   isVersionConflict: vi.fn<(error: unknown) => boolean>(() => false),
 }
 vi.mock('../bugStore', () => ({
@@ -40,8 +60,35 @@ vi.mock('../bugStore', () => ({
     get current() {
       return detailState.current
     },
+    get comments() {
+      return detailState.comments
+    },
+    get commentsTotal() {
+      return detailState.commentsTotal
+    },
+    get commentsPage() {
+      return detailState.commentsPage
+    },
+    get logs() {
+      return detailState.logs
+    },
+    get history() {
+      return detailState.history
+    },
+    get historyDetail() {
+      return detailState.historyDetail
+    },
+    get acceptances() {
+      return detailState.acceptances
+    },
+    get traceLoading() {
+      return detailState.traceLoading
+    },
     submitting: false,
     loadDetail: () => storeMocks.loadDetail(),
+    loadComments: () => storeMocks.loadComments(),
+    loadTrace: () => storeMocks.loadTrace(),
+    addComment: () => storeMocks.addComment(),
     start: vi.fn<(bugId: number) => Promise<void>>(),
     saveFix: vi.fn<(bugId: number, fixDescriptionMd: string) => Promise<void>>(),
     submit: vi.fn<(bugId: number) => Promise<void>>(),
@@ -50,6 +97,10 @@ vi.mock('../bugStore', () => ({
     updateBasic: () => storeMocks.updateBasic(),
     assign: vi.fn<(bugId: number, assigneeId: number) => Promise<void>>(),
     setAcceptor: vi.fn<(bugId: number, acceptorId: number) => Promise<void>>(),
+    uploadAttachment: vi.fn<(bugId: number, file: File) => Promise<void>>(),
+    removeAttachment: vi.fn<(bugId: number, attachmentId: number) => Promise<void>>(),
+    openHistoryDetail: vi.fn<(bugId: number, versionNo: number) => Promise<void>>(),
+    closeHistoryDetail: vi.fn<() => void>(),
     isVersionConflict: (error: unknown) => storeMocks.isVersionConflict(error),
   }),
 }))
@@ -107,6 +158,11 @@ const stubs = {
   ElTable: { props: ['data'], template: '<table><slot /></table>' },
   ElTableColumn: { template: '<td><slot /></td>' },
   ElPopconfirm: { template: '<span><slot name="reference" /></span>' },
+  ElTimeline: { template: '<div class="timeline"><slot /></div>' },
+  ElTimelineItem: {
+    props: ['timestamp'],
+    template: '<div class="timeline-item">{{ timestamp }}<slot /></div>',
+  },
   ElDialog: { template: '<div><slot /><slot name="footer" /></div>' },
   ElForm: { template: '<form @submit.prevent="$emit(\'submit\')"><slot /></form>' },
   ElFormItem: { template: '<label><slot /></label>' },
@@ -123,8 +179,19 @@ describe('BugDetailView', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.clearAllMocks()
+    detailState.comments = []
+    detailState.commentsTotal = 0
+    detailState.commentsPage = 1
+    detailState.logs = []
+    detailState.history = []
+    detailState.historyDetail = null
+    detailState.acceptances = []
+    detailState.traceLoading = false
     storeMocks.loadDetail.mockResolvedValue(undefined)
     storeMocks.updateBasic.mockResolvedValue(undefined)
+    storeMocks.loadComments.mockResolvedValue(undefined)
+    storeMocks.loadTrace.mockResolvedValue(undefined)
+    storeMocks.addComment.mockResolvedValue(undefined)
     storeMocks.isVersionConflict.mockReturnValue(false)
   })
 
@@ -197,23 +264,91 @@ describe('BugDetailView', () => {
     expect(wrapper.text()).toContain('数据已被其他用户修改')
   })
 
-  it('展示最近验收记录的状态变化', async () => {
-    const wrapper = await mountDetail({
-      ...BUG_BASE,
-      status: 'CLOSED',
-      latestAcceptance: {
-        id: 1,
-        acceptorId: 10,
+  it('验收记录应展示完整历史而不是只显示最近一条', async () => {
+    detailState.acceptances = [
+      {
+        id: 2,
+        acceptorId: 11,
+        acceptorUsername: 'tester',
+        acceptorDisplayName: '李四',
         result: 'PASS',
-        commentMd: '验证通过',
+        commentMd: null,
         fromStatus: 'WAIT_ACCEPTANCE',
         toStatus: 'CLOSED',
+        createdAt: '2026-09-15T12:00:00',
+      },
+      {
+        id: 1,
+        acceptorId: 11,
+        acceptorUsername: 'tester',
+        acceptorDisplayName: '李四',
+        result: 'REJECT',
+        commentMd: null,
+        fromStatus: 'WAIT_ACCEPTANCE',
+        toStatus: 'REOPENED',
         createdAt: '2026-09-14T12:00:00',
       },
-    })
+    ]
+    const wrapper = await mountDetail({ ...BUG_BASE, status: 'CLOSED' })
 
-    expect(wrapper.text()).toContain('最近验收记录')
+    expect(wrapper.text()).toContain('验收记录')
     expect(wrapper.text()).toContain('待验收 → 已关闭')
-    expect(wrapper.text()).toContain('验证通过')
+    expect(wrapper.text()).toContain('待验收 → 重新打开')
+    expect(wrapper.text()).toContain('李四')
+  })
+
+  it('操作日志页签展示操作者和业务描述', async () => {
+    detailState.logs = [
+      {
+        id: 1,
+        operatorId: 10,
+        operatorUsername: 'owner',
+        operatorDisplayName: '张三',
+        operationType: 'CREATE_BUG',
+        fieldName: null,
+        oldValue: null,
+        newValue: 'BUG-000101',
+        description: '创建了 BUG-000101',
+        createdAt: '2026-09-14T10:00:00',
+      },
+    ]
+    const wrapper = await mountDetail(BUG_BASE)
+
+    const logsTab = wrapper.findAll('button').find((button) => button.text().includes('操作日志'))
+    await logsTab?.trigger('click')
+
+    expect(wrapper.text()).toContain('张三')
+    expect(wrapper.text()).toContain('创建了 BUG-000101')
+  })
+
+  it('评论列表展示作者，空评论不允许提交', async () => {
+    detailState.comments = [
+      {
+        id: 1,
+        userId: 12,
+        username: 'dev',
+        displayName: '王五',
+        contentMd: '测试环境也可以复现',
+        createdAt: '2026-09-14T11:00:00',
+      },
+    ]
+    detailState.commentsTotal = 1
+    const wrapper = await mountDetail({ ...BUG_BASE, assigneeId: CURRENT_USER.id })
+
+    expect(wrapper.text()).toContain('王五')
+
+    const submit = wrapper.findAll('button').find((button) => button.text().includes('发表评论'))
+    await submit?.trigger('click')
+
+    expect(storeMocks.addComment).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('评论内容不能为空')
+  })
+
+  it('关闭后的 Bug 不再显示附件上传入口', async () => {
+    const open = await mountDetail({ ...BUG_BASE, assigneeId: CURRENT_USER.id })
+    expect(open.text()).toContain('上传附件')
+
+    const closed = await mountDetail({ ...BUG_BASE, status: 'CLOSED' })
+    expect(closed.text()).not.toContain('上传附件')
   })
 })

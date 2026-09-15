@@ -490,7 +490,7 @@ a {
 :root[data-theme='light'] .members-card,
 :root[data-theme='light'] .personal-card,
 :root[data-theme='light'] .settings-card,
-:root[data-theme='light'] .detail-preview,
+:root[data-theme='light'] .detail-trace,
 :root[data-theme='light'] .workspace-panel__content,
 :root[data-theme='light'] .activity-preview,
 :root[data-theme='light'] .bug-list__card,
@@ -505,8 +505,7 @@ a {
 
 :root[data-theme='light'] .recent-table__head,
 :root[data-theme='light'] .recent-table__row:hover,
-:root[data-theme='light'] .personal-card__more,
-:root[data-theme='light'] .detail-preview__body {
+:root[data-theme='light'] .personal-card__more {
   background: #f5f8fc !important;
 }
 

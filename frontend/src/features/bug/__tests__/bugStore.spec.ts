@@ -6,21 +6,29 @@ import { createPinia, setActivePinia } from 'pinia'
 
 import { useBugStore } from '../bugStore'
 import * as bugApi from '../bugApi'
-import type { BugDetail, BugSummary } from '../bugApi'
+import type { BugComment, BugDetail, BugSummary } from '../bugApi'
 import { ApiError } from '@/shared/api/types'
 
 vi.mock('../bugApi', () => ({
   acceptBug: vi.fn<typeof bugApi.acceptBug>(),
   assignBug: vi.fn<typeof bugApi.assignBug>(),
   createBug: vi.fn<typeof bugApi.createBug>(),
+  createComment: vi.fn<typeof bugApi.createComment>(),
+  deleteBugAttachment: vi.fn<typeof bugApi.deleteBugAttachment>(),
+  fetchAcceptances: vi.fn<typeof bugApi.fetchAcceptances>(),
   fetchBugDetail: vi.fn<typeof bugApi.fetchBugDetail>(),
   fetchBugs: vi.fn<typeof bugApi.fetchBugs>(),
+  fetchComments: vi.fn<typeof bugApi.fetchComments>(),
+  fetchDescriptionHistory: vi.fn<typeof bugApi.fetchDescriptionHistory>(),
+  fetchDescriptionHistoryDetail: vi.fn<typeof bugApi.fetchDescriptionHistoryDetail>(),
+  fetchOperationLogs: vi.fn<typeof bugApi.fetchOperationLogs>(),
   rejectBug: vi.fn<typeof bugApi.rejectBug>(),
   saveFixDescription: vi.fn<typeof bugApi.saveFixDescription>(),
   setBugAcceptor: vi.fn<typeof bugApi.setBugAcceptor>(),
   startBug: vi.fn<typeof bugApi.startBug>(),
   submitBug: vi.fn<typeof bugApi.submitBug>(),
   updateBug: vi.fn<typeof bugApi.updateBug>(),
+  uploadBugAttachment: vi.fn<typeof bugApi.uploadBugAttachment>(),
 }))
 
 const BUG_SUMMARY: BugSummary = {
@@ -155,5 +163,110 @@ describe('bugStore', () => {
     })
 
     expect(created).toEqual({ id: 102, bugNo: 'BUG-000102' })
+  })
+
+  it('评论分页应追加历史页，发表评论后应回到第一页刷新', async () => {
+    const first: BugComment = {
+      id: 1,
+      userId: 10,
+      username: 'owner',
+      displayName: '负责人',
+      contentMd: '第一条',
+      createdAt: '2026-09-14T10:00:00',
+    }
+    const second: BugComment = { ...first, id: 2, contentMd: '第二条' }
+    vi.mocked(bugApi.fetchComments)
+      .mockResolvedValueOnce({ records: [first], total: 2, page: 1, pageSize: 20 })
+      .mockResolvedValueOnce({ records: [second], total: 2, page: 2, pageSize: 20 })
+      .mockResolvedValueOnce({ records: [first, second], total: 2, page: 1, pageSize: 20 })
+    vi.mocked(bugApi.createComment).mockResolvedValue(second)
+
+    const store = useBugStore()
+    await store.loadComments(101)
+    await store.loadComments(101, 2)
+    expect(store.comments.map((comment) => comment.id)).toEqual([1, 2])
+    expect(store.commentsPage).toBe(2)
+
+    await store.addComment(101, '第二条')
+    expect(bugApi.createComment).toHaveBeenCalledWith(101, '第二条')
+    expect(bugApi.fetchComments).toHaveBeenLastCalledWith(101, 1, 20)
+    expect(store.comments.map((comment) => comment.id)).toEqual([1, 2])
+    expect(store.commentsPage).toBe(1)
+    expect(store.submitting).toBe(false)
+  })
+
+  it('加载追溯数据应填充日志、历史和验收记录', async () => {
+    vi.mocked(bugApi.fetchOperationLogs).mockResolvedValue([
+      {
+        id: 1,
+        operatorId: 10,
+        operatorUsername: 'owner',
+        operatorDisplayName: '负责人',
+        operationType: 'CREATE_BUG',
+        fieldName: null,
+        oldValue: null,
+        newValue: 'BUG-000101',
+        description: '创建了 BUG-000101',
+        createdAt: '2026-09-14T10:00:00',
+      },
+    ])
+    vi.mocked(bugApi.fetchDescriptionHistory).mockResolvedValue([
+      {
+        id: 1,
+        versionNo: 1,
+        operatorId: 10,
+        operatorUsername: 'owner',
+        operatorDisplayName: '负责人',
+        createdAt: '2026-09-14T10:00:00',
+      },
+    ])
+    vi.mocked(bugApi.fetchAcceptances).mockResolvedValue([
+      {
+        id: 1,
+        acceptorId: 10,
+        acceptorUsername: 'owner',
+        acceptorDisplayName: '负责人',
+        result: 'PASS',
+        commentMd: null,
+        fromStatus: 'WAIT_ACCEPTANCE',
+        toStatus: 'CLOSED',
+        createdAt: '2026-09-14T12:00:00',
+      },
+    ])
+
+    const store = useBugStore()
+    await store.loadTrace(101)
+
+    expect(store.logs).toHaveLength(1)
+    expect(store.history[0]?.versionNo).toBe(1)
+    expect(store.acceptances[0]?.result).toBe('PASS')
+    expect(store.traceLoading).toBe(false)
+  })
+
+  it('上传和删除附件后应重新读取详情', async () => {
+    const detail: BugDetail = {
+      ...BUG_DETAIL,
+      attachments: [
+        {
+          id: 9,
+          originalName: 'log.txt',
+          fileSize: 12,
+          contentType: 'text/plain',
+          uploaderId: 10,
+          createdAt: '2026-09-14T10:00:00',
+        },
+      ],
+    }
+    vi.mocked(bugApi.uploadBugAttachment).mockResolvedValue(detail.attachments[0]!)
+    vi.mocked(bugApi.deleteBugAttachment).mockResolvedValue(undefined)
+    vi.mocked(bugApi.fetchBugDetail).mockResolvedValue(detail)
+
+    const store = useBugStore()
+    await store.uploadAttachment(101, new File(['内容'], 'log.txt', { type: 'text/plain' }))
+    expect(store.current?.attachments).toHaveLength(1)
+
+    await store.removeAttachment(101, 9)
+    expect(bugApi.deleteBugAttachment).toHaveBeenCalledWith(9)
+    expect(bugApi.fetchBugDetail).toHaveBeenCalledTimes(2)
   })
 })

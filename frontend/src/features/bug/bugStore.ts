@@ -10,19 +10,32 @@ import {
   acceptBug,
   assignBug,
   createBug,
+  createComment,
+  deleteBugAttachment,
+  fetchAcceptances,
   fetchBugDetail,
   fetchBugs,
+  fetchComments,
+  fetchDescriptionHistory,
+  fetchDescriptionHistoryDetail,
+  fetchOperationLogs,
   rejectBug,
   saveFixDescription,
   setBugAcceptor,
   startBug,
   submitBug,
   updateBug,
+  uploadBugAttachment,
 } from './bugApi'
 import type {
+  BugAcceptanceRecord,
+  BugComment,
   BugCreated,
+  BugDescriptionHistoryDetail,
+  BugDescriptionHistoryItem,
   BugDetail,
   BugListQuery,
+  BugOperationLog,
   BugSummary,
   CreateBugPayload,
   UpdateBugPayload,
@@ -34,6 +47,8 @@ function createDefaultQuery(): BugListQuery {
   return { page: 1, pageSize: DEFAULT_PAGE_SIZE }
 }
 
+const COMMENT_PAGE_SIZE = 20
+
 export const useBugStore = defineStore('bug', () => {
   const list = ref<BugSummary[]>([])
   const total = ref(0)
@@ -41,6 +56,14 @@ export const useBugStore = defineStore('bug', () => {
   const current = ref<BugDetail | null>(null)
   const loading = ref(false)
   const submitting = ref(false)
+  const comments = ref<BugComment[]>([])
+  const commentsTotal = ref(0)
+  const commentsPage = ref(1)
+  const logs = ref<BugOperationLog[]>([])
+  const history = ref<BugDescriptionHistoryItem[]>([])
+  const historyDetail = ref<BugDescriptionHistoryDetail | null>(null)
+  const acceptances = ref<BugAcceptanceRecord[]>([])
+  const traceLoading = ref(false)
 
   /** 按当前筛选条件加载列表，页码越界由服务端返回空集时不再自动纠正。 */
   async function loadBugs(workspaceId: number): Promise<void> {
@@ -120,11 +143,92 @@ export const useBugStore = defineStore('bug', () => {
     await withSubmitting(async () => applyDetail(await rejectBug(bugId, commentMd)))
   }
 
+  /** 加载评论；page 大于 1 时追加到已有列表，供"加载更多"使用。 */
+  async function loadComments(bugId: number, page = 1): Promise<void> {
+    const pageData = await fetchComments(bugId, page, COMMENT_PAGE_SIZE)
+    comments.value = page === 1 ? pageData.records : [...comments.value, ...pageData.records]
+    commentsTotal.value = pageData.total
+    commentsPage.value = page
+  }
+
+  /** 发表评论后回到第一页重新加载，保证最新评论立即可见。 */
+  async function addComment(bugId: number, contentMd: string): Promise<void> {
+    await withSubmitting(async () => {
+      await createComment(bugId, contentMd)
+      await loadComments(bugId, 1)
+    })
+  }
+
+  /** 并行加载操作日志、描述历史和验收历史，三者都是只读的追溯数据。 */
+  async function loadTrace(bugId: number): Promise<void> {
+    traceLoading.value = true
+    try {
+      const [logList, historyList, acceptanceList] = await Promise.all([
+        fetchOperationLogs(bugId),
+        fetchDescriptionHistory(bugId),
+        fetchAcceptances(bugId),
+      ])
+      logs.value = logList
+      history.value = historyList
+      acceptances.value = acceptanceList
+    } finally {
+      traceLoading.value = false
+    }
+  }
+
+  /** 按需读取单个历史版本正文，不写入列表状态。 */
+  async function openHistoryDetail(bugId: number, versionNo: number): Promise<void> {
+    historyDetail.value = await fetchDescriptionHistoryDetail(bugId, versionNo)
+  }
+
+  function closeHistoryDetail(): void {
+    historyDetail.value = null
+  }
+
+  /** 上传附件后重新读取详情，附件列表以服务端为准。 */
+  async function uploadAttachment(bugId: number, file: File): Promise<void> {
+    await withSubmitting(async () => {
+      await uploadBugAttachment(bugId, file)
+      await loadDetail(bugId)
+    })
+  }
+
+  /** 逻辑删除附件后同步详情中的附件列表。 */
+  async function removeAttachment(bugId: number, attachmentId: number): Promise<void> {
+    await withSubmitting(async () => {
+      await deleteBugAttachment(attachmentId)
+      await loadDetail(bugId)
+    })
+  }
+
+  /** 创建后补传附件，返回失败文件名清单，单个失败不中断其余文件。 */
+  async function uploadAttachments(bugId: number, files: File[]): Promise<string[]> {
+    const failed: string[] = []
+    await withSubmitting(async () => {
+      for (const file of files) {
+        try {
+          await uploadBugAttachment(bugId, file)
+        } catch {
+          failed.push(file.name)
+        }
+      }
+    })
+    return failed
+  }
+
   /** 清空全部状态，账号切换时调用。 */
   function reset(): void {
     resetQuery()
     loading.value = false
     submitting.value = false
+    comments.value = []
+    commentsTotal.value = 0
+    commentsPage.value = 1
+    logs.value = []
+    history.value = []
+    historyDetail.value = null
+    acceptances.value = []
+    traceLoading.value = false
   }
 
   function applyDetail(detail: BugDetail): void {
@@ -147,6 +251,14 @@ export const useBugStore = defineStore('bug', () => {
     current,
     loading,
     submitting,
+    comments,
+    commentsTotal,
+    commentsPage,
+    logs,
+    history,
+    historyDetail,
+    acceptances,
+    traceLoading,
     loadBugs,
     resetQuery,
     create,
@@ -159,6 +271,14 @@ export const useBugStore = defineStore('bug', () => {
     submit,
     accept,
     reject,
+    loadComments,
+    addComment,
+    loadTrace,
+    openHistoryDetail,
+    closeHistoryDetail,
+    uploadAttachment,
+    removeAttachment,
+    uploadAttachments,
     reset,
     isVersionConflict,
   }
