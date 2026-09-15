@@ -80,7 +80,10 @@ describe('bugStore', () => {
     store.query.status = 'TODO'
     await store.loadBugs(1)
 
-    expect(bugApi.fetchBugs).toHaveBeenCalledWith(1, expect.objectContaining({ page: 2, status: 'TODO' }))
+    expect(bugApi.fetchBugs).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ page: 2, status: 'TODO' }),
+    )
     expect(store.list).toEqual([BUG_SUMMARY])
     expect(store.total).toBe(1)
     expect(store.loading).toBe(false)
@@ -122,17 +125,21 @@ describe('bugStore', () => {
   })
 
   it('应识别 40902 版本冲突并原样向上抛出其他错误', async () => {
-    vi.mocked(bugApi.updateBug).mockRejectedValue(new ApiError(40902, '数据已被其他用户修改，请刷新后重试'))
+    vi.mocked(bugApi.updateBug).mockRejectedValue(
+      new ApiError(40902, '数据已被其他用户修改，请刷新后重试'),
+    )
 
     const store = useBugStore()
     store.current = BUG_DETAIL
 
-    await expect(store.updateBasic(101, {
-      title: '标题',
-      descriptionMd: '描述',
-      priority: 'P2',
-      version: 0,
-    })).rejects.toMatchObject({ code: 40902 })
+    await expect(
+      store.updateBasic(101, {
+        title: '标题',
+        descriptionMd: '描述',
+        priority: 'P2',
+        version: 0,
+      }),
+    ).rejects.toMatchObject({ code: 40902 })
   })
 
   it('应把创建结果原样返回供页面跳转', async () => {

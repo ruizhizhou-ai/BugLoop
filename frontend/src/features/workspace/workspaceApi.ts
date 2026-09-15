@@ -59,7 +59,10 @@ export function fetchWorkspace(workspaceId: number): Promise<Workspace> {
 }
 
 /** 修改工作空间名称和描述。 */
-export function updateWorkspace(workspaceId: number, payload: WorkspacePayload): Promise<Workspace> {
+export function updateWorkspace(
+  workspaceId: number,
+  payload: WorkspacePayload,
+): Promise<Workspace> {
   return http.put<unknown, Workspace>(`/workspaces/${workspaceId}`, payload)
 }
 

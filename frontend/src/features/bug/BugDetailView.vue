@@ -14,7 +14,6 @@ import {
   ElFormItem,
   ElInput,
   ElOption,
-  ElPopconfirm,
   ElSelect,
   ElTable,
   ElTableColumn,
@@ -31,7 +30,6 @@ import 'element-plus/es/components/form/style/css'
 import 'element-plus/es/components/form-item/style/css'
 import 'element-plus/es/components/input/style/css'
 import 'element-plus/es/components/option/style/css'
-import 'element-plus/es/components/popconfirm/style/css'
 import 'element-plus/es/components/popper/style/css'
 import 'element-plus/es/components/select/style/css'
 import 'element-plus/es/components/table/style/css'
@@ -42,7 +40,13 @@ import { MdEditor, MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 
 import { useBugStore } from './bugStore'
-import { BUG_PRIORITY_OPTIONS, PRIORITY_META, STATUS_META, formatDateTime, formatFileSize } from './bugMeta'
+import {
+  BUG_PRIORITY_OPTIONS,
+  PRIORITY_META,
+  STATUS_META,
+  formatDateTime,
+  formatFileSize,
+} from './bugMeta'
 import type { BugPriority } from './bugApi'
 import { useAuthStore } from '@/features/auth/authStore'
 import { useWorkspaceStore } from '@/features/workspace/workspaceStore'
@@ -60,6 +64,7 @@ const acceptMode = ref<'accept' | 'reject'>('accept')
 const fixDialogVisible = ref(false)
 const personDialogVisible = ref(false)
 const infoDialogVisible = ref(false)
+const previewTab = ref<'comments' | 'logs' | 'history'>('comments')
 
 const acceptForm = reactive({ commentMd: '' })
 const fixForm = reactive({ fixDescriptionMd: '' })
@@ -76,21 +81,34 @@ const isAssignee = computed(() => bug.value?.assigneeId === currentUserId.value)
 const isAcceptor = computed(() => bug.value?.acceptorId === currentUserId.value)
 const isCreator = computed(() => bug.value?.creatorId === currentUserId.value)
 const isManager = computed(() => {
-  const role = bug.value?.workspace.currentUserRole ?? workspaceStore.currentWorkspace?.currentUserRole
+  const role =
+    bug.value?.workspace.currentUserRole ?? workspaceStore.currentWorkspace?.currentUserRole
   return auth.user?.systemRole === 'SYSTEM_ADMIN' || role === 'OWNER' || role === 'ADMIN'
 })
-const mutable = computed(() => workspaceStore.isEnabled && bug.value?.workspace.status === 'ENABLED')
+const mutable = computed(
+  () => workspaceStore.isEnabled && bug.value?.workspace.status === 'ENABLED',
+)
 
 const canStart = computed(
   () => mutable.value && isAssignee.value && ['TODO', 'REOPENED'].includes(bug.value?.status ?? ''),
 )
 const canEditFix = computed(
-  () => mutable.value && isAssignee.value && ['PROCESSING', 'REOPENED'].includes(bug.value?.status ?? ''),
+  () =>
+    mutable.value &&
+    isAssignee.value &&
+    ['PROCESSING', 'REOPENED'].includes(bug.value?.status ?? ''),
 )
-const canSubmit = computed(() => mutable.value && isAssignee.value && bug.value?.status === 'PROCESSING')
-const canAccept = computed(() => mutable.value && isAcceptor.value && bug.value?.status === 'WAIT_ACCEPTANCE')
+const canSubmit = computed(
+  () => mutable.value && isAssignee.value && bug.value?.status === 'PROCESSING',
+)
+const canAccept = computed(
+  () => mutable.value && isAcceptor.value && bug.value?.status === 'WAIT_ACCEPTANCE',
+)
 const canManagePeople = computed(
-  () => mutable.value && isManager.value && ['TODO', 'PROCESSING', 'REOPENED'].includes(bug.value?.status ?? ''),
+  () =>
+    mutable.value &&
+    isManager.value &&
+    ['TODO', 'PROCESSING', 'REOPENED'].includes(bug.value?.status ?? ''),
 )
 const canEditBasic = computed(
   () => mutable.value && (isManager.value || isCreator.value) && bug.value?.status !== 'CLOSED',
@@ -255,21 +273,42 @@ function goBack(): void {
             <h2>{{ bug.title }}</h2>
           </div>
           <div class="bug-detail__actions">
-            <el-button v-if="canStart" type="primary" :loading="bugStore.submitting" @click="handleStart">
+            <el-button
+              v-if="canStart"
+              type="primary"
+              :loading="bugStore.submitting"
+              @click="handleStart"
+            >
               开始处理
             </el-button>
-            <el-button v-if="canEditFix" type="primary" :loading="bugStore.submitting" @click="openFixDialog">
-              {{ bug.status === 'REOPENED' && !bug.fixDescriptionMd ? '填写修复说明' : '编辑修复说明' }}
+            <el-button
+              v-if="canEditFix"
+              type="primary"
+              :loading="bugStore.submitting"
+              @click="openFixDialog"
+            >
+              {{
+                bug.status === 'REOPENED' && !bug.fixDescriptionMd ? '填写修复说明' : '编辑修复说明'
+              }}
             </el-button>
-            <el-button v-if="canSubmit" type="warning" :loading="bugStore.submitting" @click="handleSubmit">
+            <el-button
+              v-if="canSubmit"
+              type="warning"
+              :loading="bugStore.submitting"
+              @click="handleSubmit"
+            >
               提交验收
             </el-button>
             <template v-if="canAccept">
               <el-button type="success" @click="openAcceptDialog('accept')">验收通过</el-button>
-              <el-button type="danger" plain @click="openAcceptDialog('reject')">验收驳回</el-button>
+              <el-button type="danger" plain @click="openAcceptDialog('reject')"
+                >验收驳回</el-button
+              >
             </template>
             <el-button v-if="canManagePeople" @click="openPersonDialog(true)">指派</el-button>
-            <el-button v-if="canManagePeople" @click="openPersonDialog(false)">修改验收人</el-button>
+            <el-button v-if="canManagePeople" @click="openPersonDialog(false)"
+              >修改验收人</el-button
+            >
             <el-button v-if="canEditBasic" @click="openInfoDialog">编辑信息</el-button>
             <el-button @click="goBack">返回列表</el-button>
           </div>
@@ -277,16 +316,22 @@ function goBack(): void {
 
         <div class="bug-detail__meta">
           <el-tag :type="STATUS_META[bug.status].tag">{{ STATUS_META[bug.status].label }}</el-tag>
-          <el-tag :type="PRIORITY_META[bug.priority].tag">{{ PRIORITY_META[bug.priority].label }}</el-tag>
+          <el-tag :type="PRIORITY_META[bug.priority].tag">{{
+            PRIORITY_META[bug.priority].label
+          }}</el-tag>
           <el-tag v-if="bug.status === 'REOPENED'" type="warning" effect="plain">
             重新打开 {{ bug.reopenCount }} 次
           </el-tag>
           <span class="bug-detail__meta-item">提交人：{{ bug.creator?.displayName ?? '-' }}</span>
-          <span class="bug-detail__meta-item">负责人：{{ bug.assignee?.displayName ?? '未指定' }}</span>
+          <span class="bug-detail__meta-item"
+            >负责人：{{ bug.assignee?.displayName ?? '未指定' }}</span
+          >
           <span class="bug-detail__meta-item">验收人：{{ bug.acceptor?.displayName ?? '-' }}</span>
           <span class="bug-detail__meta-item">创建：{{ formatDateTime(bug.createdAt) }}</span>
           <span class="bug-detail__meta-item">更新：{{ formatDateTime(bug.updatedAt) }}</span>
-          <span v-if="bug.closedAt" class="bug-detail__meta-item">关闭：{{ formatDateTime(bug.closedAt) }}</span>
+          <span v-if="bug.closedAt" class="bug-detail__meta-item"
+            >关闭：{{ formatDateTime(bug.closedAt) }}</span
+          >
         </div>
       </el-card>
 
@@ -304,7 +349,10 @@ function goBack(): void {
         <template #header><h3>最近验收记录</h3></template>
         <el-descriptions :column="2" border>
           <el-descriptions-item label="结果">
-            <el-tag :type="bug.latestAcceptance.result === 'PASS' ? 'success' : 'danger'" size="small">
+            <el-tag
+              :type="bug.latestAcceptance.result === 'PASS' ? 'success' : 'danger'"
+              size="small"
+            >
               {{ bug.latestAcceptance.result === 'PASS' ? '通过' : '驳回' }}
             </el-tag>
           </el-descriptions-item>
@@ -335,9 +383,58 @@ function goBack(): void {
         <el-empty v-else description="附件上传能力将在后续版本开放" :image-size="72" />
       </el-card>
 
-      <el-card shadow="never">
-        <el-empty description="评论、操作日志与文档历史将在后续版本开放" :image-size="72" />
-      </el-card>
+      <section class="detail-preview">
+        <header class="detail-preview__tabs">
+          <button
+            type="button"
+            :class="{ active: previewTab === 'comments' }"
+            @click="previewTab = 'comments'"
+          >
+            评论
+          </button>
+          <button
+            type="button"
+            :class="{ active: previewTab === 'logs' }"
+            @click="previewTab = 'logs'"
+          >
+            操作日志
+          </button>
+          <button
+            type="button"
+            :class="{ active: previewTab === 'history' }"
+            @click="previewTab = 'history'"
+          >
+            文档历史
+          </button>
+          <span>后续能力预览</span>
+        </header>
+        <div class="detail-preview__body">
+          <span class="detail-preview__avatar">{{
+            (auth.user?.displayName || 'U').slice(0, 1)
+          }}</span>
+          <div>
+            <strong>{{
+              previewTab === 'comments'
+                ? '参与问题讨论'
+                : previewTab === 'logs'
+                  ? '追踪每次状态变化'
+                  : '查看描述修订记录'
+            }}</strong>
+            <p>
+              {{
+                previewTab === 'comments'
+                  ? '评论编辑器与消息提醒将在后续里程碑接入。'
+                  : previewTab === 'logs'
+                    ? '审计日志接口接入后会按时间线展示操作者、动作和状态变化。'
+                    : '历史版本接口接入后可对比并恢复问题描述。'
+              }}
+            </p>
+          </div>
+          <button type="button" disabled>
+            {{ previewTab === 'comments' ? '发表评论' : '查看完整记录' }}
+          </button>
+        </div>
+      </section>
     </template>
 
     <el-dialog
@@ -348,7 +445,9 @@ function goBack(): void {
       <md-editor v-model="fixForm.fixDescriptionMd" />
       <template #footer>
         <el-button @click="fixDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="bugStore.submitting" @click="handleSaveFix">保存</el-button>
+        <el-button type="primary" :loading="bugStore.submitting" @click="handleSaveFix"
+          >保存</el-button
+        >
       </template>
     </el-dialog>
 
@@ -358,8 +457,17 @@ function goBack(): void {
       width="min(92vw, 520px)"
     >
       <el-form label-position="top" @submit.prevent="handleAcceptance">
-        <el-form-item :label="acceptMode === 'accept' ? '验收意见（可选）' : '驳回原因（必填）'" required>
-          <el-input v-model="acceptForm.commentMd" type="textarea" :rows="4" maxlength="1000" show-word-limit />
+        <el-form-item
+          :label="acceptMode === 'accept' ? '验收意见（可选）' : '驳回原因（必填）'"
+          required
+        >
+          <el-input
+            v-model="acceptForm.commentMd"
+            type="textarea"
+            :rows="4"
+            maxlength="1000"
+            show-word-limit
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -393,7 +501,9 @@ function goBack(): void {
       </el-form>
       <template #footer>
         <el-button @click="personDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="bugStore.submitting" @click="handleSavePerson">保存</el-button>
+        <el-button type="primary" :loading="bugStore.submitting" @click="handleSavePerson"
+          >保存</el-button
+        >
       </template>
     </el-dialog>
 
@@ -418,13 +528,20 @@ function goBack(): void {
       </el-form>
       <template #footer>
         <el-button @click="infoDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="bugStore.submitting" @click="handleUpdateBasic">保存</el-button>
+        <el-button type="primary" :loading="bugStore.submitting" @click="handleUpdateBasic"
+          >保存</el-button
+        >
       </template>
     </el-dialog>
   </main>
 </template>
 
 <style scoped>
+.bug-detail {
+  max-width: 1260px;
+  margin: 0 auto;
+}
+
 .bug-detail__alert {
   margin-bottom: 16px;
 }
@@ -479,5 +596,99 @@ function goBack(): void {
   margin-top: 12px;
   color: #606266;
   font-size: 13px;
+}
+
+.detail-preview {
+  margin-bottom: 16px;
+  overflow: hidden;
+  background: linear-gradient(145deg, #171e26, #141a21);
+  border: 1px solid var(--bl-border);
+  border-radius: 9px;
+}
+
+.detail-preview__tabs {
+  display: flex;
+  min-height: 54px;
+  align-items: stretch;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--bl-border);
+}
+
+.detail-preview__tabs button {
+  position: relative;
+  padding: 0 14px;
+  color: var(--bl-text-secondary);
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.detail-preview__tabs button.active {
+  color: #58aaff;
+}
+
+.detail-preview__tabs button.active::after {
+  position: absolute;
+  right: 12px;
+  bottom: 0;
+  left: 12px;
+  height: 2px;
+  content: '';
+  background: #3998ff;
+}
+
+.detail-preview__tabs span {
+  align-self: center;
+  margin-left: auto;
+  color: #627184;
+  font-size: 11px;
+}
+
+.detail-preview__body {
+  display: grid;
+  grid-template-columns: 42px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 22px;
+}
+
+.detail-preview__avatar {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  color: white;
+  background: linear-gradient(145deg, #257be8, #4ca0ff);
+  border-radius: 50%;
+}
+
+.detail-preview__body strong {
+  color: #dbe3ed;
+  font-size: 13px;
+}
+
+.detail-preview__body p {
+  margin: 6px 0 0;
+  color: var(--bl-muted);
+  font-size: 12px;
+}
+
+.detail-preview__body > button {
+  padding: 8px 13px;
+  color: #667587;
+  background: #1d2630;
+  border: 1px solid #303b47;
+  border-radius: 6px;
+}
+
+@media (max-width: 650px) {
+  .detail-preview__body {
+    grid-template-columns: 42px 1fr;
+  }
+
+  .detail-preview__body > button {
+    grid-column: 1 / -1;
+  }
 }
 </style>

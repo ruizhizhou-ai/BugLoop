@@ -31,13 +31,22 @@ import 'element-plus/es/components/table-column/style/css'
 import 'element-plus/es/components/tag/style/css'
 
 import { useBugStore } from './bugStore'
-import { BUG_PRIORITY_OPTIONS, BUG_STATUS_OPTIONS, PRIORITY_META, STATUS_META, formatDateTime } from './bugMeta'
+import {
+  BUG_PRIORITY_OPTIONS,
+  BUG_STATUS_OPTIONS,
+  PRIORITY_META,
+  STATUS_META,
+  formatDateTime,
+} from './bugMeta'
+import { useAuthStore } from '@/features/auth/authStore'
 import { useWorkspaceStore } from '@/features/workspace/workspaceStore'
 import { isApiError } from '@/shared/api/types'
+import AppIcon from '@/shared/components/AppIcon.vue'
 
 const route = useRoute()
 const router = useRouter()
 const bugStore = useBugStore()
+const auth = useAuthStore()
 const workspaceStore = useWorkspaceStore()
 
 const errorMessage = ref('')
@@ -45,10 +54,31 @@ const dateRange = ref<[string, string] | null>(null)
 
 const workspaceId = computed(() => Number(route.params.workspaceId))
 const canCreate = computed(() => workspaceStore.isEnabled)
+const pageTitle = computed(() => String(route.meta?.bugListTitle ?? 'Bug 列表'))
+const pageSubtitle = computed(() =>
+  String(route.meta?.bugListSubtitle ?? '查看和筛选工作空间内的全部 Bug'),
+)
 
 onMounted(() => {
+  applyRoutePreset()
   void loadBugs()
 })
+
+/** 根据侧栏入口设置人员和状态筛选，让个人工作视图直接复用标准列表能力。 */
+function applyRoutePreset(): void {
+  const preset = route.meta?.bugListPreset
+  const userId = auth.user?.id
+  if (!preset || !userId) {
+    return
+  }
+  bugStore.resetQuery()
+  if (preset === 'submitted') bugStore.query.creatorId = userId
+  if (preset === 'assigned') bugStore.query.assigneeId = userId
+  if (preset === 'acceptance') {
+    bugStore.query.acceptorId = userId
+    bugStore.query.status = 'WAIT_ACCEPTANCE'
+  }
+}
 
 /** 切换工作空间时清空筛选，避免把上一个空间的条件带过来。 */
 async function loadBugs(): Promise<void> {
@@ -101,6 +131,17 @@ function personName(user: { displayName: string } | null): string {
 
 <template>
   <main class="bug-list">
+    <header class="bug-list__page-heading">
+      <div>
+        <h1>{{ pageTitle }}</h1>
+        <p>{{ pageSubtitle }} · 共 {{ bugStore.total }} 条</p>
+      </div>
+      <el-button v-if="canCreate" type="primary" @click="createBug">
+        <AppIcon name="plus" :size="18" />
+        新建 Bug
+      </el-button>
+    </header>
+
     <el-alert
       v-if="errorMessage"
       class="bug-list__alert"
@@ -111,17 +152,7 @@ function personName(user: { displayName: string } | null): string {
       @close="errorMessage = ''"
     />
 
-    <el-card shadow="never">
-      <template #header>
-        <div class="bug-list__header">
-          <div>
-            <h2>Bug 列表</h2>
-            <span class="bug-list__subtitle">共 {{ bugStore.total }} 条</span>
-          </div>
-          <el-button v-if="canCreate" type="primary" @click="createBug">新建 Bug</el-button>
-        </div>
-      </template>
-
+    <el-card class="bug-list__card" shadow="never">
       <div class="bug-list__filters">
         <el-input
           v-model="bugStore.query.keyword"
@@ -131,8 +162,19 @@ function personName(user: { displayName: string } | null): string {
           @keyup.enter="applyFilters"
           @clear="applyFilters"
         />
-        <el-select v-model="bugStore.query.status" class="filter-item" placeholder="状态" clearable @change="applyFilters">
-          <el-option v-for="option in BUG_STATUS_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+        <el-select
+          v-model="bugStore.query.status"
+          class="filter-item"
+          placeholder="状态"
+          clearable
+          @change="applyFilters"
+        >
+          <el-option
+            v-for="option in BUG_STATUS_OPTIONS"
+            :key="option.value"
+            :label="option.label"
+            :value="option.value"
+          />
         </el-select>
         <el-select
           v-model="bugStore.query.priority"
@@ -201,7 +243,10 @@ function personName(user: { displayName: string } | null): string {
         <el-table-column prop="title" label="标题" min-width="220" show-overflow-tooltip />
         <el-table-column label="优先级" width="90">
           <template #default="{ row }">
-            <el-tag :type="PRIORITY_META[row.priority as keyof typeof PRIORITY_META].tag" size="small">
+            <el-tag
+              :type="PRIORITY_META[row.priority as keyof typeof PRIORITY_META].tag"
+              size="small"
+            >
               {{ PRIORITY_META[row.priority as keyof typeof PRIORITY_META].label }}
             </el-tag>
           </template>
@@ -249,25 +294,48 @@ function personName(user: { displayName: string } | null): string {
 </template>
 
 <style scoped>
+.bug-list {
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.bug-list__page-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.bug-list__page-heading h1 {
+  margin: 0 0 7px;
+  color: #f2f6fb;
+  font-size: 29px;
+}
+
+.bug-list__page-heading p {
+  margin: 0;
+  color: var(--bl-text-secondary);
+  font-size: 14px;
+}
+
+.bug-list__page-heading :deep(.el-button) {
+  min-height: 43px;
+  padding: 0 18px;
+  border-radius: 8px;
+  box-shadow: 0 8px 22px rgb(25 117 238 / 18%);
+}
+
 .bug-list__alert {
   margin-bottom: 16px;
 }
 
-.bug-list__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+.bug-list__card {
+  border-radius: 9px;
 }
 
-.bug-list__header h2 {
-  margin: 0;
-  font-size: 16px;
-}
-
-.bug-list__subtitle {
-  color: #909399;
-  font-size: 13px;
+.bug-list__card :deep(.el-card__body) {
+  padding: 20px;
 }
 
 .bug-list__filters {
@@ -293,8 +361,41 @@ function personName(user: { displayName: string } | null): string {
   cursor: pointer;
 }
 
+/* 使用主题变量覆盖组件库按需注入的默认行底色，避免深色模式回退为白底。 */
+.bug-list__table :deep(.el-table__body tr),
+.bug-list__table :deep(.el-table__body td.el-table__cell) {
+  background-color: var(--el-table-tr-bg-color);
+}
+
+.bug-list__table :deep(.el-table__row:hover > td.el-table__cell) {
+  background: #1c2630;
+}
+
+.bug-list__table :deep(.el-table__header-wrapper th) {
+  height: 46px;
+  color: #8997a8;
+  font-weight: 500;
+  background: #1c242d;
+}
+
 .bug-list__pagination {
   margin-top: 16px;
   justify-content: flex-end;
+}
+
+@media (max-width: 650px) {
+  .bug-list__page-heading {
+    flex-direction: column;
+  }
+
+  .bug-list__page-heading :deep(.el-button) {
+    width: 100%;
+  }
+
+  .filter-item,
+  .filter-item--keyword,
+  .filter-item--date {
+    width: 100%;
+  }
 }
 </style>

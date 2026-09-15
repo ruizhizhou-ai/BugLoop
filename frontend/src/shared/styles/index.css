@@ -1,9 +1,10 @@
 /**
- * 本文件定义前端全局基础样式，业务模块的局部样式应保留在对应组件中。
+ * 本文件定义 BugLoop 全局深色设计系统，并统一覆盖 Element Plus 基础组件外观。
+ * 页面局部布局仍保留在各自组件中，颜色、边框和交互反馈从此处继承。
  */
 :root {
-  color: #303133;
-  background: #f5f7fa;
+  color: #dce4ee;
+  background: #0f141a;
   font-family:
     Inter,
     'PingFang SC',
@@ -15,14 +16,506 @@
     sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+  color-scheme: dark;
+
+  --bl-bg: #0f141a;
+  --bl-panel: #161d25;
+  --bl-panel-raised: #1a222c;
+  --bl-border: #29323d;
+  --bl-text: #dce4ee;
+  --bl-text-secondary: #929fb0;
+  --bl-muted: #718093;
+  --bl-primary: #2d8cff;
+  --bl-primary-light: #55a8ff;
+  --bl-overlay: #1a222c;
+  --bl-border-strong: #35404c;
+  --bl-overlay-shadow: 0 18px 45px rgb(0 0 0 / 34%);
+  --bl-control-bg: #171e26;
+  --bl-control-border: #2d3743;
+  --bl-control-hover: #1c252f;
+  --bl-toolbar-icon: #aebac9;
+
+  --el-color-primary: #2d8cff;
+  --el-color-primary-light-3: #2479cc;
+  --el-color-primary-light-5: #205f99;
+  --el-color-primary-light-7: #1b4466;
+  --el-color-primary-light-8: #183650;
+  --el-color-primary-light-9: #15293b;
+  --el-color-primary-dark-2: #53a2ff;
+  --el-color-success: #32c97b;
+  --el-color-warning: #eebd2e;
+  --el-color-danger: #f2645d;
+  --el-color-info: #7d8b9c;
+  --el-bg-color: #161d25;
+  --el-bg-color-page: #0f141a;
+  --el-bg-color-overlay: #1a222c;
+  --el-fill-color: #202934;
+  --el-fill-color-light: #1b242e;
+  --el-fill-color-lighter: #182029;
+  --el-fill-color-extra-light: #151c24;
+  --el-fill-color-dark: #28333f;
+  --el-fill-color-darker: #303c49;
+  --el-fill-color-blank: #161d25;
+  --el-border-color: #35404c;
+  --el-border-color-light: #2e3844;
+  --el-border-color-lighter: #29323d;
+  --el-border-color-extra-light: #242d37;
+  --el-border-color-dark: #404c59;
+  --el-border-color-darker: #4a5663;
+  --el-text-color-primary: #dce4ee;
+  --el-text-color-regular: #bcc6d2;
+  --el-text-color-secondary: #8d9bad;
+  --el-text-color-placeholder: #687789;
+  --el-text-color-disabled: #566474;
+  --el-mask-color: rgb(2 7 12 / 72%);
+  --el-box-shadow-light: 0 12px 35px rgb(0 0 0 / 28%);
+  --el-box-shadow: 0 16px 42px rgb(0 0 0 / 35%);
+  --el-border-radius-base: 7px;
+}
+
+/** 浅色主题沿用蓝色品牌色，但使用柔和的冷白背景以维持数据页面的层级感。 */
+:root[data-theme='light'] {
+  color: #263445;
+  background: #f4f7fb;
+  color-scheme: light;
+
+  --bl-bg: #f4f7fb;
+  --bl-panel: #ffffff;
+  --bl-panel-raised: #ffffff;
+  --bl-border: #dce4ed;
+  --bl-text: #263445;
+  --bl-text-secondary: #627286;
+  --bl-muted: #7a899b;
+  --bl-primary: #1677e8;
+  --bl-primary-light: #1976d2;
+  --bl-overlay: #ffffff;
+  --bl-border-strong: #d2dce8;
+  --bl-overlay-shadow: 0 15px 36px rgb(28 44 66 / 15%);
+  --bl-control-bg: #ffffff;
+  --bl-control-border: #d8e1ec;
+  --bl-control-hover: #edf5ff;
+  --bl-toolbar-icon: #526277;
+
+  --el-color-primary: #1677e8;
+  --el-color-primary-light-3: #69a9f0;
+  --el-color-primary-light-5: #a1c9f6;
+  --el-color-primary-light-7: #c8e0fb;
+  --el-color-primary-light-8: #dcedfc;
+  --el-color-primary-light-9: #eef7ff;
+  --el-color-primary-dark-2: #0e61bd;
+  --el-color-success: #22a866;
+  --el-color-warning: #d99b12;
+  --el-color-danger: #dc514c;
+  --el-color-info: #8491a3;
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: #f4f7fb;
+  --el-bg-color-overlay: #ffffff;
+  --el-fill-color: #f0f4f8;
+  --el-fill-color-light: #f6f8fb;
+  --el-fill-color-lighter: #f9fbfd;
+  --el-fill-color-extra-light: #fbfcfe;
+  --el-fill-color-dark: #e9eef5;
+  --el-fill-color-darker: #dfe7f0;
+  --el-fill-color-blank: #ffffff;
+  --el-border-color: #d7e0eb;
+  --el-border-color-light: #e1e8f0;
+  --el-border-color-lighter: #e9eef4;
+  --el-border-color-extra-light: #f0f3f7;
+  --el-border-color-dark: #c8d4e0;
+  --el-border-color-darker: #bcc9d6;
+  --el-text-color-primary: #263445;
+  --el-text-color-regular: #405166;
+  --el-text-color-secondary: #718096;
+  --el-text-color-placeholder: #98a5b5;
+  --el-text-color-disabled: #a5afbc;
+  --el-mask-color: rgb(31 45 61 / 35%);
+  --el-box-shadow-light: 0 10px 28px rgb(26 45 68 / 10%);
+  --el-box-shadow: 0 16px 38px rgb(26 45 68 / 15%);
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  min-width: 320px;
+  min-height: 100%;
+  background: var(--bl-bg);
+}
+
 body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
+  background: var(--bl-bg);
+}
+
+:root[data-theme='light'] body {
+  background: #f4f7fb;
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+a {
+  color: var(--bl-primary-light);
+  text-decoration: none;
+}
+
+::selection {
+  color: white;
+  background: rgb(45 140 255 / 48%);
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #35414e;
+  border: 2px solid #171e26;
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #171e26;
+}
+
+.el-card {
+  background: linear-gradient(145deg, #171e26, #141a21);
+  border-color: var(--bl-border);
+}
+
+:root[data-theme='light'] .el-card {
+  background: #fff;
+  box-shadow: 0 8px 22px rgb(30 54 78 / 5%);
+}
+
+.el-card__header {
+  border-bottom-color: var(--bl-border);
+}
+
+.el-input__wrapper,
+.el-select__wrapper,
+.el-textarea__inner,
+.el-date-editor.el-input__wrapper {
+  background: #151d25 !important;
+  box-shadow: 0 0 0 1px #34404c inset !important;
+}
+
+:root[data-theme='light'] .el-input__wrapper,
+:root[data-theme='light'] .el-select__wrapper,
+:root[data-theme='light'] .el-textarea__inner,
+:root[data-theme='light'] .el-date-editor.el-input__wrapper {
+  background: #fff !important;
+  box-shadow: 0 0 0 1px #d5e0eb inset !important;
+}
+
+.el-input__wrapper:hover,
+.el-select__wrapper:hover,
+.el-textarea__inner:hover {
+  box-shadow: 0 0 0 1px #465463 inset !important;
+}
+
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused,
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--bl-primary) inset !important;
+}
+
+.el-input__inner,
+.el-textarea__inner {
+  color: var(--bl-text) !important;
+  background: transparent !important;
+}
+
+.el-button--default {
+  color: #cbd4df;
+  background: #1c252e;
+  border-color: #37434f;
+}
+
+:root[data-theme='light'] .el-button--default {
+  color: #415269;
+  background: #fff;
+  border-color: #d4dee9;
+}
+
+:root[data-theme='light'] .el-button--default:hover {
+  color: #1677e8;
+  background: #eef6ff;
+  border-color: #9dc8fa;
+}
+
+.el-button--default:hover {
+  color: #fff;
+  background: #232e39;
+  border-color: #4a5866;
+}
+
+.el-button--primary {
+  background: linear-gradient(135deg, #1680f7, #247bff);
+  border-color: #318eff;
+}
+
+.el-table,
+.el-table tr,
+.el-table th.el-table__cell,
+.el-table td.el-table__cell {
+  background: transparent;
+}
+
+.el-table {
+  --el-table-border-color: #29323d;
+  --el-table-header-bg-color: #1c242d;
+  --el-table-row-hover-bg-color: #1d2731;
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-expanded-cell-bg-color: #182029;
+}
+
+:root[data-theme='light'] .el-table {
+  --el-table-border-color: #e1e8f0;
+  --el-table-header-bg-color: #f5f8fc;
+  --el-table-row-hover-bg-color: #f2f7fd;
+  --el-table-bg-color: #fff;
+  --el-table-tr-bg-color: #fff;
+  --el-table-expanded-cell-bg-color: #f8fafc;
+}
+
+.el-dialog {
+  background: #171f28;
+  border: 1px solid #35404c;
+  border-radius: 10px;
+  box-shadow: 0 24px 70px rgb(0 0 0 / 48%);
+}
+
+:root[data-theme='light'] .el-dialog {
+  background: #fff;
+  border-color: #d9e3ed;
+  box-shadow: 0 24px 70px rgb(25 43 65 / 22%);
+}
+
+.el-dialog__header {
+  padding-bottom: 17px;
+  border-bottom: 1px solid var(--bl-border);
+}
+
+.el-dialog__footer {
+  padding-top: 17px;
+  border-top: 1px solid var(--bl-border);
+}
+
+.el-popper.is-light,
+.el-select__popper.el-popper,
+.el-picker__popper.el-popper {
+  color: var(--bl-text);
+  background: #1a222c;
+  border-color: #35404c;
+}
+
+:root[data-theme='light'] .el-popper.is-light,
+:root[data-theme='light'] .el-select__popper.el-popper,
+:root[data-theme='light'] .el-picker__popper.el-popper {
+  color: var(--bl-text);
+  background: #fff;
+  border-color: #d9e3ed;
+}
+
+.el-select-dropdown__item.is-hovering,
+.el-select-dropdown__item:hover {
+  background: #26313d;
+}
+
+.el-pagination button,
+.el-pager li {
+  background: #1b242e;
+}
+
+:root[data-theme='light'] .el-pagination button,
+:root[data-theme='light'] .el-pager li {
+  background: #fff;
+}
+
+.md-editor,
+.md-editor-preview-wrapper {
+  --md-bk-color: #151d25;
+  --md-border-color: #34404c;
+  --md-color: #dce4ee;
+  --md-hover-color: #26313d;
+  --md-scrollbar-bg-color: #35414e;
+}
+
+.md-editor-preview {
+  color: #d0d8e2;
+}
+
+:root[data-theme='light'] .md-editor,
+:root[data-theme='light'] .md-editor-preview-wrapper {
+  --md-bk-color: #fff;
+  --md-border-color: #d5e0eb;
+  --md-color: #2d3c4e;
+  --md-hover-color: #eef6ff;
+  --md-scrollbar-bg-color: #cbd7e3;
+}
+
+:root[data-theme='light'] .md-editor-preview {
+  color: #334358;
+}
+
+/** 以下是深色工作台局部组件的浅色覆写，确保卡片、标题和工具栏不会在切换后残留暗色块。 */
+:root[data-theme='light'] .workspace-shell {
+  background:
+    radial-gradient(circle at 70% 0%, rgb(71 140 219 / 10%), transparent 30%), var(--bl-bg) !important;
+}
+
+:root[data-theme='light'] .workspace-sidebar {
+  background: linear-gradient(180deg, #fbfdff 0%, #f4f8fc 100%) !important;
+  border-right-color: #dce5ef !important;
+}
+
+:root[data-theme='light'] .brand,
+:root[data-theme='light'] .sidebar-card strong {
+  color: #26364a !important;
+}
+
+:root[data-theme='light'] .workspace-switcher .el-select__wrapper,
+:root[data-theme='light'] .sidebar-card {
+  background: #fff !important;
+  border-color: #dce5ef !important;
+}
+
+:root[data-theme='light'] .sidebar-nav__item {
+  color: #526277 !important;
+}
+
+:root[data-theme='light'] .sidebar-nav__item:hover {
+  color: #1976d2 !important;
+  background: #edf5ff !important;
+}
+
+:root[data-theme='light'] .sidebar-nav__item--active {
+  color: #1677e8 !important;
+  background: linear-gradient(90deg, #e8f3ff, #f5faff) !important;
+  border-color: #cfe5fb !important;
+  box-shadow: 0 8px 20px rgb(37 110 192 / 7%) !important;
+}
+
+:root[data-theme='light'] .sidebar-nav__divider {
+  background: #dce5ef !important;
+}
+
+:root[data-theme='light'] .sidebar-card__icon {
+  background: #eaf4ff !important;
+}
+
+:root[data-theme='light'] .sidebar-card p {
+  color: #7b899b !important;
+}
+
+:root[data-theme='light'] .workspace-topbar {
+  background: rgb(255 255 255 / 92%) !important;
+  box-shadow: 0 1px 0 rgb(31 51 73 / 4%);
+}
+
+:root[data-theme='light'] .global-search,
+:root[data-theme='light'] .utility-panel,
+:root[data-theme='light'] .account-menu__panel {
+  color: var(--bl-text) !important;
+  background: #fff !important;
+  border-color: #d8e2ed !important;
+}
+
+:root[data-theme='light'] .global-search input,
+:root[data-theme='light'] .account-menu__trigger {
+  color: var(--bl-text) !important;
+}
+
+:root[data-theme='light'] .global-search kbd {
+  color: #718096;
+  background: #f3f6fa;
+  border-color: #dce4ed;
+}
+
+:root[data-theme='light'] .topbar-icon:hover,
+:root[data-theme='light'] .account-menu__trigger:hover,
+:root[data-theme='light'] .account-menu__panel button:hover {
+  color: #1677e8 !important;
+  background: #eef6ff !important;
+}
+
+:root[data-theme='light'] .dashboard-panel,
+:root[data-theme='light'] .metric-card,
+:root[data-theme='light'] .members-card,
+:root[data-theme='light'] .personal-card,
+:root[data-theme='light'] .settings-card,
+:root[data-theme='light'] .detail-preview,
+:root[data-theme='light'] .workspace-panel__content,
+:root[data-theme='light'] .activity-preview,
+:root[data-theme='light'] .bug-list__card,
+:root[data-theme='light'] .bug-create .el-card,
+:root[data-theme='light'] .bug-detail .el-card,
+:root[data-theme='light'] .auth-card,
+:root[data-theme='light'] .workspace-picker .el-card {
+  background: #fff !important;
+  border-color: #dce5ef !important;
+  box-shadow: 0 8px 22px rgb(30 54 78 / 5%) !important;
+}
+
+:root[data-theme='light'] .recent-table__head,
+:root[data-theme='light'] .recent-table__row:hover,
+:root[data-theme='light'] .personal-card__more,
+:root[data-theme='light'] .detail-preview__body {
+  background: #f5f8fc !important;
+}
+
+:root[data-theme='light'] .workspace-content h1,
+:root[data-theme='light'] .workspace-content h2,
+:root[data-theme='light'] .workspace-content h3,
+:root[data-theme='light'] .workspace-content strong,
+:root[data-theme='light'] .auth-card h1,
+:root[data-theme='light'] .workspace-picker h1 {
+  color: #243348 !important;
+}
+
+:root[data-theme='light'] .workspace-content p,
+:root[data-theme='light'] .workspace-content .card-subtitle,
+:root[data-theme='light'] .workspace-content small,
+:root[data-theme='light'] .workspace-content time,
+:root[data-theme='light'] .auth-card span,
+:root[data-theme='light'] .workspace-picker span {
+  color: #718096 !important;
+}
+
+:root[data-theme='light'] .workspace-content .recent-table__row,
+:root[data-theme='light'] .workspace-content .settings-row strong,
+:root[data-theme='light'] .workspace-content .member-identity strong,
+:root[data-theme='light'] .workspace-content .activity-item__content strong {
+  color: #37475b !important;
+}
+
+:root[data-theme='light'] .auth-page,
+:root[data-theme='light'] .workspace-picker {
+  background:
+    radial-gradient(circle at 20% 20%, rgb(55 139 234 / 13%), transparent 28%),
+    radial-gradient(circle at 80% 80%, rgb(70 150 235 / 10%), transparent 30%), #f4f8fc !important;
+}
+
+:root[data-theme='light'] .auth-page::before {
+  opacity: 0.15;
+}
+
+:root[data-theme='light'] .auth-page__brand,
+:root[data-theme='light'] .workspace-picker__brand {
+  color: #243348 !important;
 }

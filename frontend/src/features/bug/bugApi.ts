@@ -75,6 +75,7 @@ export interface BugListQuery {
   priority?: BugPriority
   assigneeId?: number
   creatorId?: number
+  acceptorId?: number
   startDate?: string
   endDate?: string
 }
@@ -98,8 +99,13 @@ export function createBug(workspaceId: number, payload: CreateBugPayload): Promi
   return http.post<unknown, BugCreated>(`/workspaces/${workspaceId}/bugs`, payload)
 }
 
-export function fetchBugs(workspaceId: number, query: BugListQuery): Promise<PageResponse<BugSummary>> {
-  return http.get<unknown, PageResponse<BugSummary>>(`/workspaces/${workspaceId}/bugs`, { params: query })
+export function fetchBugs(
+  workspaceId: number,
+  query: BugListQuery,
+): Promise<PageResponse<BugSummary>> {
+  return http.get<unknown, PageResponse<BugSummary>>(`/workspaces/${workspaceId}/bugs`, {
+    params: query,
+  })
 }
 
 export function fetchBugDetail(bugId: number): Promise<BugDetail> {

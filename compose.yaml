@@ -1,4 +1,4 @@
-# 本文件为 BugLoop 提供本地 MySQL，并预留前后端容器化联调方式。
+# 本文件为 BugLoop 提供本地 MySQL 与 MinIO，并预留前后端容器化联调方式。
 services:
   mysql:
     image: mysql:8.0
@@ -17,6 +17,28 @@ services:
     healthcheck:
       # 只有 MySQL 真正接受连接后，后端容器才允许启动。
       test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    container_name: bugloop-minio
+    restart: unless-stopped
+    # server 数据目录；--console-address 固定控制台端口，避免随机端口。
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-bugloop}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-bugloop_minio}
+      TZ: Asia/Shanghai
+    ports:
+      # 9000 为 S3 API，9001 为 Web 控制台。
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - bugloop-minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/live || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 20
@@ -57,4 +79,5 @@ services:
 
 volumes:
   bugloop-mysql-data:
+  bugloop-minio-data:
 

@@ -5,7 +5,12 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
 import { clearToken, readToken, writeToken } from '@/shared/api/http'
-import { fetchCurrentUser, login as loginApi, logout as logoutApi, register as registerApi } from './authApi'
+import {
+  fetchCurrentUser,
+  login as loginApi,
+  logout as logoutApi,
+  register as registerApi,
+} from './authApi'
 import type { AuthUser, LoginPayload, RegisterPayload } from './authApi'
 
 export const useAuthStore = defineStore('auth', () => {

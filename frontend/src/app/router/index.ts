@@ -33,8 +33,54 @@ const router = createRouter({
       children: [
         {
           path: '',
+          name: 'workspace-dashboard',
+          component: () => import('@/features/workspace/WorkspaceDashboardView.vue'),
+        },
+        {
+          path: 'bugs',
           name: 'bug-list',
           component: () => import('@/features/bug/BugListView.vue'),
+          meta: { bugListTitle: 'Bug 列表', bugListSubtitle: '查看和筛选工作空间内的全部 Bug' },
+        },
+        {
+          path: 'bugs/mine',
+          name: 'my-bugs',
+          component: () => import('@/features/bug/MyBugsView.vue'),
+        },
+        {
+          path: 'bugs/submitted',
+          name: 'submitted-bugs',
+          component: () => import('@/features/bug/BugListView.vue'),
+          meta: {
+            bugListPreset: 'submitted',
+            bugListTitle: '我提交的',
+            bugListSubtitle: '追踪由我创建的 Bug',
+          },
+        },
+        {
+          path: 'bugs/assigned',
+          name: 'assigned-bugs',
+          component: () => import('@/features/bug/BugListView.vue'),
+          meta: {
+            bugListPreset: 'assigned',
+            bugListTitle: '指派给我的',
+            bugListSubtitle: '集中处理当前由我负责的 Bug',
+          },
+        },
+        {
+          path: 'bugs/acceptance',
+          name: 'acceptance-bugs',
+          component: () => import('@/features/bug/BugListView.vue'),
+          meta: {
+            bugListPreset: 'acceptance',
+            bugListTitle: '待我验收',
+            bugListSubtitle: '需要我确认修复结果的 Bug',
+          },
+        },
+        {
+          path: 'members',
+          name: 'workspace-members',
+          component: () => import('@/features/workspace/WorkspaceMembersView.vue'),
         },
         {
           path: 'settings',
@@ -59,7 +105,7 @@ const router = createRouter({
       redirect: () => {
         const workspaceId = useWorkspaceStore().currentWorkspaceId
         return workspaceId
-          ? { name: 'bug-list', params: { workspaceId } }
+          ? { name: 'workspace-dashboard', params: { workspaceId } }
           : { name: 'workspace-picker' }
       },
     },

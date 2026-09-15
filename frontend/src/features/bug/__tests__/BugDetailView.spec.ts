@@ -12,7 +12,7 @@ import type { BugDetail } from '../bugApi'
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { workspaceId: '1', bugId: '101' } }),
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: vi.fn<(location: unknown) => void>() }),
 }))
 
 const CURRENT_USER = { id: 10, username: 'owner', displayName: '张三', systemRole: 'USER' as const }
@@ -42,14 +42,14 @@ vi.mock('../bugStore', () => ({
     },
     submitting: false,
     loadDetail: () => storeMocks.loadDetail(),
-    start: vi.fn(),
-    saveFix: vi.fn(),
-    submit: vi.fn(),
-    accept: vi.fn(),
-    reject: vi.fn(),
+    start: vi.fn<(bugId: number) => Promise<void>>(),
+    saveFix: vi.fn<(bugId: number, fixDescriptionMd: string) => Promise<void>>(),
+    submit: vi.fn<(bugId: number) => Promise<void>>(),
+    accept: vi.fn<(bugId: number, commentMd: string | null) => Promise<void>>(),
+    reject: vi.fn<(bugId: number, commentMd: string) => Promise<void>>(),
     updateBasic: () => storeMocks.updateBasic(),
-    assign: vi.fn(),
-    setAcceptor: vi.fn(),
+    assign: vi.fn<(bugId: number, assigneeId: number) => Promise<void>>(),
+    setAcceptor: vi.fn<(bugId: number, acceptorId: number) => Promise<void>>(),
     isVersionConflict: (error: unknown) => storeMocks.isVersionConflict(error),
   }),
 }))
@@ -137,7 +137,12 @@ describe('BugDetailView', () => {
   })
 
   it('当前用户既不是负责人也不是验收人时不应显示状态操作', async () => {
-    const wrapper = await mountDetail({ ...BUG_BASE, assigneeId: 99, acceptorId: 99, status: 'PROCESSING' })
+    const wrapper = await mountDetail({
+      ...BUG_BASE,
+      assigneeId: 99,
+      acceptorId: 99,
+      status: 'PROCESSING',
+    })
 
     expect(wrapper.text()).not.toContain('开始处理')
     expect(wrapper.text()).not.toContain('提交验收')
@@ -155,7 +160,11 @@ describe('BugDetailView', () => {
   })
 
   it('已关闭的 Bug 不显示任何状态操作按钮', async () => {
-    const wrapper = await mountDetail({ ...BUG_BASE, status: 'CLOSED', closedAt: '2026-09-14T12:00:00' })
+    const wrapper = await mountDetail({
+      ...BUG_BASE,
+      status: 'CLOSED',
+      closedAt: '2026-09-14T12:00:00',
+    })
 
     expect(wrapper.text()).not.toContain('开始处理')
     expect(wrapper.text()).not.toContain('编辑修复说明')
@@ -169,12 +178,16 @@ describe('BugDetailView', () => {
     storeMocks.isVersionConflict.mockReturnValue(true)
 
     const wrapper = await mountDetail({ ...BUG_BASE, assigneeId: CURRENT_USER.id })
-    const editButton = wrapper.findAll('button').find((button) => button.text().includes('编辑信息'))
+    const editButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('编辑信息'))
     await editButton?.trigger('click')
     await nextTick()
 
     // 模板里四个弹窗都会渲染「保存」按钮，信息编辑弹窗是最后一个
-    const saveButtons = wrapper.findAll('button').filter((button) => button.text().trim() === '保存')
+    const saveButtons = wrapper
+      .findAll('button')
+      .filter((button) => button.text().trim() === '保存')
     await saveButtons[saveButtons.length - 1]?.trigger('click')
     await nextTick()
     await nextTick()

@@ -13,6 +13,7 @@ import 'element-plus/es/components/input/style/css'
 
 import { useAuthStore } from './authStore'
 import { isApiError } from '@/shared/api/types'
+import ThemeToggle from '@/shared/components/ThemeToggle.vue'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -55,15 +56,25 @@ async function handleSubmit(): Promise<void> {
 
 <template>
   <main class="auth-page">
+    <div class="auth-page__brand">
+      <span class="auth-page__mark"><i /></span><strong>BugLoop</strong>
+    </div>
+    <div class="auth-page__theme"><ThemeToggle /></div>
     <el-card class="auth-card" shadow="never">
       <template #header>
         <div class="auth-card__header">
-          <h1>BugLoop</h1>
-          <span>内部 Bug 追踪系统</span>
+          <h1>欢迎回来</h1>
+          <span>登录内部 Bug 追踪与协作工作台</span>
         </div>
       </template>
 
-      <el-alert v-if="errorMessage" :title="errorMessage" type="error" :closable="false" show-icon />
+      <el-alert
+        v-if="errorMessage"
+        :title="errorMessage"
+        type="error"
+        :closable="false"
+        show-icon
+      />
 
       <el-form
         ref="formRef"
@@ -86,7 +97,12 @@ async function handleSubmit(): Promise<void> {
             @keyup.enter="handleSubmit"
           />
         </el-form-item>
-        <el-button type="primary" class="auth-card__submit" :loading="submitting" @click="handleSubmit">
+        <el-button
+          type="primary"
+          class="auth-card__submit"
+          :loading="submitting"
+          @click="handleSubmit"
+        >
           登录
         </el-button>
       </el-form>
@@ -101,14 +117,82 @@ async function handleSubmit(): Promise<void> {
 
 <style scoped>
 .auth-page {
+  position: relative;
   display: grid;
   min-height: 100vh;
   padding: 24px;
   place-items: center;
+  background:
+    radial-gradient(circle at 20% 20%, rgb(27 113 214 / 18%), transparent 28%),
+    radial-gradient(circle at 80% 80%, rgb(29 85 151 / 12%), transparent 30%), #0d1218;
+}
+
+.auth-page::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: '';
+  opacity: 0.25;
+  background-image:
+    linear-gradient(#26313c 1px, transparent 1px),
+    linear-gradient(90deg, #26313c 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(circle, black, transparent 70%);
+}
+
+.auth-page__brand {
+  position: absolute;
+  top: 28px;
+  left: 32px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  color: #f3f7fc;
+  font-size: 20px;
+}
+
+.auth-page__theme {
+  position: absolute;
+  top: 25px;
+  right: 32px;
+  z-index: 2;
+}
+
+.auth-page__mark {
+  position: relative;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  transform: rotate(-32deg);
+  border: 6px solid #318cff;
+  border-radius: 50%;
+}
+
+.auth-page__mark::after {
+  position: absolute;
+  right: -7px;
+  width: 10px;
+  height: 6px;
+  content: '';
+  background: #318cff;
+  border-radius: 2px;
+}
+
+.auth-page__mark i {
+  width: 6px;
+  height: 6px;
+  border: 2px solid #61c0ff;
+  border-radius: 50%;
 }
 
 .auth-card {
+  position: relative;
+  z-index: 1;
   width: min(100%, 420px);
+  border-color: #313c48;
+  border-radius: 12px;
+  box-shadow: 0 28px 80px rgb(0 0 0 / 38%);
 }
 
 .auth-card__header {
@@ -117,6 +201,8 @@ async function handleSubmit(): Promise<void> {
 
 .auth-card__header h1 {
   margin: 0 0 4px;
+  color: #f2f6fb;
+  font-size: 24px;
 }
 
 .auth-card__header span {
@@ -133,6 +219,6 @@ async function handleSubmit(): Promise<void> {
   margin: 16px 0 0;
   text-align: center;
   font-size: 13px;
-  color: #606266;
+  color: var(--bl-text-secondary);
 }
 </style>

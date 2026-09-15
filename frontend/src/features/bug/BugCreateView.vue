@@ -2,7 +2,16 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElAlert, ElButton, ElCard, ElForm, ElFormItem, ElInput, ElOption, ElSelect } from 'element-plus'
+import {
+  ElAlert,
+  ElButton,
+  ElCard,
+  ElForm,
+  ElFormItem,
+  ElInput,
+  ElOption,
+  ElSelect,
+} from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
 import 'element-plus/es/components/alert/style/css'
 import 'element-plus/es/components/button/style/css'
@@ -111,13 +120,28 @@ function goBack(): void {
         show-icon
       />
 
-      <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="handleSubmit">
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="rules"
+        label-position="top"
+        @submit.prevent="handleSubmit"
+      >
         <el-form-item label="标题" prop="title">
-          <el-input v-model="form.title" maxlength="200" show-word-limit placeholder="简要描述问题现象" />
+          <el-input
+            v-model="form.title"
+            maxlength="200"
+            show-word-limit
+            placeholder="简要描述问题现象"
+          />
         </el-form-item>
 
         <el-form-item label="详细说明（Markdown）" prop="descriptionMd">
-          <md-editor v-model="form.descriptionMd" class="bug-create__editor" placeholder="问题现象、复现步骤、期望结果等" />
+          <md-editor
+            v-model="form.descriptionMd"
+            class="bug-create__editor"
+            placeholder="问题现象、复现步骤、期望结果等"
+          />
         </el-form-item>
 
         <div class="bug-create__row">
@@ -155,7 +179,9 @@ function goBack(): void {
           </el-form-item>
         </div>
 
-        <el-button type="primary" :loading="bugStore.submitting" @click="handleSubmit">创建</el-button>
+        <el-button type="primary" :loading="bugStore.submitting" @click="handleSubmit"
+          >创建</el-button
+        >
       </el-form>
     </el-card>
   </main>
@@ -171,7 +197,8 @@ function goBack(): void {
 
 .bug-create__header h2 {
   margin: 0;
-  font-size: 16px;
+  color: #f0f5fb;
+  font-size: 21px;
 }
 
 .bug-create__alert {
@@ -190,5 +217,22 @@ function goBack(): void {
 
 .bug-create__row :deep(.el-form-item) {
   min-width: 200px;
+}
+
+.bug-create {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.bug-create :deep(.el-card) {
+  border-radius: 9px;
+}
+
+.bug-create :deep(.el-card__body) {
+  padding: 24px;
+}
+
+.bug-create :deep(.el-form-item__label) {
+  color: #aeb9c7;
 }
 </style>

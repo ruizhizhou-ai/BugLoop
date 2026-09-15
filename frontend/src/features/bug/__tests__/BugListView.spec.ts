@@ -25,7 +25,7 @@ vi.mock('../bugApi', () => ({
   updateBug: vi.fn<typeof bugApi.updateBug>(),
 }))
 
-const push = vi.fn()
+const push = vi.fn<(location: unknown) => void>()
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { workspaceId: '1' } }),
   useRouter: () => ({ push }),
@@ -101,7 +101,12 @@ describe('BugListView', () => {
   })
 
   it('应按当前工作空间加载列表并展示编号、标题与中文状态优先级', async () => {
-    vi.mocked(bugApi.fetchBugs).mockResolvedValue({ records: [BUG_ROW], total: 1, page: 1, pageSize: 20 })
+    vi.mocked(bugApi.fetchBugs).mockResolvedValue({
+      records: [BUG_ROW],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    })
 
     const wrapper = mountList()
     await vi.waitFor(() => {

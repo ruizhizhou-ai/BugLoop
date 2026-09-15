@@ -1,103 +1,57 @@
-<!-- 本文件实现工作空间设置页：空间信息维护与成员管理，顶部导航由 WorkspaceLayout 提供。 -->
+<!-- 本文件实现独立空间设置页，负责工作空间基础信息维护、状态停用与重新启用，成员操作由成员管理页承载。 -->
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
-import {
-  ElAlert,
-  ElButton,
-  ElCard,
-  ElDialog,
-  ElEmpty,
-  ElForm,
-  ElFormItem,
-  ElInput,
-  ElOption,
-  ElPopconfirm,
-  ElSelect,
-  ElTable,
-  ElTableColumn,
-  ElTag,
-} from 'element-plus'
-import 'element-plus/es/components/alert/style/css'
+import { computed, reactive, ref } from 'vue'
+import { ElButton, ElDialog, ElForm, ElFormItem, ElInput, ElPopconfirm, ElTag } from 'element-plus'
 import 'element-plus/es/components/button/style/css'
-import 'element-plus/es/components/card/style/css'
 import 'element-plus/es/components/dialog/style/css'
-import 'element-plus/es/components/empty/style/css'
 import 'element-plus/es/components/form/style/css'
 import 'element-plus/es/components/form-item/style/css'
 import 'element-plus/es/components/input/style/css'
-import 'element-plus/es/components/option/style/css'
 import 'element-plus/es/components/popconfirm/style/css'
 import 'element-plus/es/components/popper/style/css'
-import 'element-plus/es/components/select/style/css'
-import 'element-plus/es/components/table/style/css'
-import 'element-plus/es/components/table-column/style/css'
 import 'element-plus/es/components/tag/style/css'
 
+import AppIcon from '@/shared/components/AppIcon.vue'
 import { useAuthStore } from '@/features/auth/authStore'
-import { useWorkspaceStore } from './workspaceStore'
-import { searchAvailableWorkspaceUsers } from './workspaceApi'
-import type { AvailableWorkspaceUser, WorkspaceRole } from './workspaceApi'
 import { isApiError } from '@/shared/api/types'
+import { formatDateTime } from '@/features/bug/bugMeta'
+import type { WorkspaceRole } from './workspaceApi'
+import { useWorkspaceStore } from './workspaceStore'
 
-const route = useRoute()
 const auth = useAuthStore()
 const workspaceStore = useWorkspaceStore()
 
 const errorMessage = ref('')
 const submitting = ref(false)
 const editDialogVisible = ref(false)
-const memberDialogVisible = ref(false)
-const availableUsers = ref<AvailableWorkspaceUser[]>([])
-const userSearchLoading = ref(false)
-let userSearchRequestId = 0
-
 const editForm = reactive({ name: '', description: '' })
-const memberForm = reactive<{ userId: number | undefined; role: WorkspaceRole }>({
-  userId: undefined,
-  role: 'MEMBER',
-})
 
+const workspace = computed(() => workspaceStore.currentWorkspace)
+const currentRole = computed(() => workspace.value?.currentUserRole)
 const isSystemAdmin = computed(() => auth.user?.systemRole === 'SYSTEM_ADMIN')
-const currentRole = computed(() => workspaceStore.currentWorkspace?.currentUserRole)
-const canManageMembers = computed(
+const canEditWorkspace = computed(
   () =>
     workspaceStore.isEnabled &&
     (isSystemAdmin.value || currentRole.value === 'OWNER' || currentRole.value === 'ADMIN'),
 )
-const canEditWorkspace = canManageMembers
 const canDisableWorkspace = computed(
   () => workspaceStore.isEnabled && (isSystemAdmin.value || currentRole.value === 'OWNER'),
 )
 const canEnableWorkspace = computed(
   () =>
-    workspaceStore.currentWorkspace?.status === 'DISABLED' &&
+    workspace.value?.status === 'DISABLED' &&
     (isSystemAdmin.value || currentRole.value === 'OWNER'),
 )
 
-watch(
-  () => route.params.workspaceId,
-  async (workspaceId) => {
-    const id = Number(workspaceId)
-    if (!Number.isNaN(id) && id > 0 && workspaceStore.currentWorkspaceId !== id) {
-      await runAction(() => workspaceStore.selectWorkspace(id))
-    }
-  },
-  { immediate: true },
-)
-
-/** 使用当前空间数据打开编辑窗口。 */
+/** 使用服务端最新空间信息回填编辑弹窗。 */
 function openEditDialog(): void {
-  const workspace = workspaceStore.currentWorkspace
-  if (!workspace) {
-    return
-  }
-  editForm.name = workspace.name
-  editForm.description = workspace.description ?? ''
+  if (!workspace.value) return
+  editForm.name = workspace.value.name
+  editForm.description = workspace.value.description ?? ''
   editDialogVisible.value = true
 }
 
-/** 保存工作空间名称和描述。 */
+/** 保存空间名称和说明，空说明统一转为 null 与后端协议保持一致。 */
 async function handleUpdateWorkspace(): Promise<void> {
   const name = editForm.name.trim()
   if (!name) {
@@ -107,78 +61,15 @@ async function handleUpdateWorkspace(): Promise<void> {
   const succeeded = await runAction(() =>
     workspaceStore.update({ name, description: editForm.description.trim() || null }),
   )
-  if (succeeded) {
-    editDialogVisible.value = false
-  }
+  if (succeeded) editDialogVisible.value = false
 }
 
-/** 打开成员添加窗口并加载首批可选用户，降低管理员记忆随机 ID 的成本。 */
-async function openMemberDialog(): Promise<void> {
-  memberForm.userId = undefined
-  memberForm.role = 'MEMBER'
-  memberDialogVisible.value = true
-  await searchAvailableUsers('')
-}
-
-/** 搜索可加入当前空间的启用用户，只采用最后一次请求的结果避免快速输入时列表倒退。 */
-async function searchAvailableUsers(keyword: string): Promise<void> {
-  const workspaceId = workspaceStore.currentWorkspaceId
-  if (!workspaceId) {
-    return
-  }
-  const requestId = ++userSearchRequestId
-  userSearchLoading.value = true
-  try {
-    const users = await searchAvailableWorkspaceUsers(workspaceId, keyword.trim())
-    // 远程搜索可能乱序返回，过期结果不能覆盖用户刚输入关键词对应的候选项。
-    if (requestId === userSearchRequestId) {
-      availableUsers.value = users
-    }
-  } catch (error) {
-    if (requestId === userSearchRequestId) {
-      availableUsers.value = []
-      errorMessage.value = isApiError(error) ? error.message : '查询用户失败，请稍后重试'
-    }
-  } finally {
-    if (requestId === userSearchRequestId) {
-      userSearchLoading.value = false
-    }
-  }
-}
-
-/** 添加已选择的系统用户，提交时仍由服务端校验用户状态和成员重复关系。 */
-async function handleAddMember(): Promise<void> {
-  if (!memberForm.userId || memberForm.userId <= 0) {
-    errorMessage.value = '请选择要添加的用户'
-    return
-  }
-  const succeeded = await runAction(() =>
-    workspaceStore.addMember({ userId: memberForm.userId!, role: memberForm.role }),
-  )
-  if (succeeded) {
-    memberDialogVisible.value = false
-    memberForm.userId = undefined
-    memberForm.role = 'MEMBER'
-    availableUsers.value = []
-  }
-}
-
-/** 修改成员角色，本地行只在服务端成功后由 Store 替换。 */
-async function handleRoleChange(userId: number, role: WorkspaceRole): Promise<void> {
-  await runAction(() => workspaceStore.changeMemberRole(userId, role))
-}
-
-/** 移除成员，冲突原因由后端按照 Owner 和 Bug 责任规则返回。 */
-async function handleRemoveMember(userId: number): Promise<void> {
-  await runAction(() => workspaceStore.removeMember(userId))
-}
-
-/** 停用工作空间，停用后页面保留详情和成员只读能力。 */
+/** 停用空间后保留历史数据只读能力，页面会立即隐藏写操作。 */
 async function handleDisableWorkspace(): Promise<void> {
   await runAction(() => workspaceStore.disable())
 }
 
-/** 重新启用工作空间并立即恢复当前页面的管理入口。 */
+/** 重新启用空间并恢复业务写入入口。 */
 async function handleEnableWorkspace(): Promise<void> {
   await runAction(() => workspaceStore.enable())
 }
@@ -188,12 +79,7 @@ function roleLabel(role: WorkspaceRole | null | undefined): string {
   return { OWNER: '负责人', ADMIN: '管理员', MEMBER: '成员' }[role ?? 'MEMBER']
 }
 
-/**
- * 统一执行异步操作并展示业务错误，避免各按钮重复维护 loading 和异常分支。
- *
- * @param action 待执行异步操作
- * @return 是否执行成功
- */
+/** 统一执行空间写操作并向用户展示后端业务错误。 */
 async function runAction(action: () => Promise<void>): Promise<boolean> {
   submitting.value = true
   errorMessage.value = ''
@@ -210,242 +96,345 @@ async function runAction(action: () => Promise<void>): Promise<boolean> {
 </script>
 
 <template>
-  <main class="workspace-settings">
-    <el-alert
-      v-if="errorMessage"
-      class="workspace-settings__alert"
-      :title="errorMessage"
-      type="error"
-      :closable="true"
-      show-icon
-      @close="errorMessage = ''"
-    />
+  <main class="settings-page">
+    <header class="page-heading">
+      <div>
+        <h1>空间设置</h1>
+        <p>维护工作空间的名称、说明和可用状态。</p>
+      </div>
+      <button v-if="canEditWorkspace" type="button" class="primary-action" @click="openEditDialog">
+        <AppIcon name="edit" :size="17" /> 编辑设置
+      </button>
+    </header>
 
-    <el-card v-if="workspaceStore.loading" shadow="never">正在加载工作空间…</el-card>
+    <div v-if="errorMessage" class="page-alert">
+      <span>{{ errorMessage }}</span>
+      <button type="button" aria-label="关闭" @click="errorMessage = ''">
+        <AppIcon name="close" :size="16" />
+      </button>
+    </div>
 
-    <el-card v-else-if="!workspaceStore.currentWorkspace" class="empty-card" shadow="never">
-      <el-empty description="工作空间不存在或你已不是成员" />
-    </el-card>
-
-    <template v-else>
-      <el-card class="workspace-card" shadow="never">
-        <template #header>
-          <div class="card-header">
-            <div>
-              <div class="workspace-title">
-                <h2>{{ workspaceStore.currentWorkspace.name }}</h2>
-                <el-tag :type="workspaceStore.isEnabled ? 'success' : 'info'" size="small">
-                  {{ workspaceStore.isEnabled ? '运行中' : '已停用' }}
-                </el-tag>
-                <el-tag v-if="currentRole" type="primary" size="small">
-                  {{ roleLabel(currentRole) }}
-                </el-tag>
-              </div>
-              <p>{{ workspaceStore.currentWorkspace.description || '暂无工作空间说明' }}</p>
-            </div>
-            <div class="card-header__actions">
-              <el-button v-if="canEditWorkspace" @click="openEditDialog">编辑设置</el-button>
-              <el-popconfirm
-                v-if="canDisableWorkspace"
-                title="停用后将只允许查看历史数据，确认继续吗？"
-                confirm-button-text="确认停用"
-                cancel-button-text="取消"
-                @confirm="handleDisableWorkspace"
-              >
-                <template #reference>
-                  <el-button type="danger" plain>停用工作空间</el-button>
-                </template>
-              </el-popconfirm>
-              <el-button
-                v-if="canEnableWorkspace"
-                type="success"
-                :loading="submitting"
-                @click="handleEnableWorkspace"
-              >
-                重新启用
-              </el-button>
-            </div>
+    <section v-if="workspace" class="settings-card workspace-overview">
+      <div class="workspace-overview__identity">
+        <span>{{ workspace.name.slice(0, 1).toUpperCase() }}</span>
+        <div>
+          <div class="workspace-overview__title">
+            <h2>{{ workspace.name }}</h2>
+            <el-tag :type="workspaceStore.isEnabled ? 'success' : 'info'" size="small">
+              {{ workspaceStore.isEnabled ? '运行中' : '已停用' }}
+            </el-tag>
           </div>
-        </template>
-        <p class="workspace-card__hint">
-          工作空间 ID：{{ workspaceStore.currentWorkspace.id }}。Bug 数据严格限定在该空间内。
-        </p>
-      </el-card>
+          <p>{{ workspace.description || '暂无工作空间说明' }}</p>
+        </div>
+      </div>
+      <dl>
+        <div>
+          <dt>空间 ID</dt>
+          <dd>{{ workspace.id }}</dd>
+        </div>
+        <div>
+          <dt>我的角色</dt>
+          <dd>{{ roleLabel(currentRole) }}</dd>
+        </div>
+        <div>
+          <dt>成员数量</dt>
+          <dd>{{ workspaceStore.members.length }}</dd>
+        </div>
+        <div>
+          <dt>创建时间</dt>
+          <dd>{{ formatDateTime(workspace.createdAt) }}</dd>
+        </div>
+      </dl>
+    </section>
 
-      <el-card class="member-card" shadow="never">
-        <template #header>
-          <div class="card-header card-header--center">
-            <div>
-              <h2>成员管理</h2>
-              <span class="card-subtitle">共 {{ workspaceStore.members.length }} 位成员</span>
-            </div>
-            <el-button v-if="canManageMembers" type="primary" @click="openMemberDialog">
-              添加成员
-            </el-button>
-          </div>
-        </template>
+    <section class="settings-card settings-section">
+      <header>
+        <div>
+          <h2>基础信息</h2>
+          <p>工作空间名称和说明会显示在成员的首页概览中。</p>
+        </div>
+      </header>
+      <div class="settings-row">
+        <span>空间名称</span><strong>{{ workspace?.name || '-' }}</strong>
+      </div>
+      <div class="settings-row">
+        <span>空间说明</span><strong>{{ workspace?.description || '未填写' }}</strong>
+      </div>
+    </section>
 
-        <el-table :data="workspaceStore.members" row-key="userId">
-          <el-table-column prop="displayName" label="显示名称" min-width="150" />
-          <el-table-column prop="username" label="用户名" min-width="140" />
-          <el-table-column prop="userId" label="用户 ID" width="100" />
-          <el-table-column label="账号状态" width="110">
-            <template #default="{ row }">
-              <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
-                {{ row.enabled ? '已启用' : '已禁用' }}
-              </el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column label="空间角色" width="160">
-            <template #default="{ row }">
-              <el-select
-                v-if="canManageMembers"
-                :model-value="row.role"
-                size="small"
-                @change="(role: WorkspaceRole) => handleRoleChange(row.userId, role)"
-              >
-                <el-option label="负责人" value="OWNER" />
-                <el-option label="管理员" value="ADMIN" />
-                <el-option label="成员" value="MEMBER" />
-              </el-select>
-              <el-tag v-else size="small">{{ roleLabel(row.role) }}</el-tag>
-            </template>
-          </el-table-column>
-          <el-table-column v-if="canManageMembers" label="操作" width="100" fixed="right">
-            <template #default="{ row }">
-              <el-popconfirm
-                title="确认移除该成员吗？"
-                confirm-button-text="确认"
-                cancel-button-text="取消"
-                @confirm="handleRemoveMember(row.userId)"
-              >
-                <template #reference>
-                  <el-button link type="danger">移除</el-button>
-                </template>
-              </el-popconfirm>
-            </template>
-          </el-table-column>
-        </el-table>
-      </el-card>
-    </template>
+    <section class="settings-card settings-section danger-zone">
+      <header>
+        <div>
+          <h2>空间状态</h2>
+          <p>停用后所有 Bug 和成员数据仍可查看，但不允许任何写入操作。</p>
+        </div>
+      </header>
+      <div class="danger-zone__action">
+        <div>
+          <strong>{{ workspaceStore.isEnabled ? '停用工作空间' : '重新启用工作空间' }}</strong>
+          <p>
+            {{
+              workspaceStore.isEnabled
+                ? '适用于项目暂停或归档，历史记录不会被删除。'
+                : '恢复创建、编辑、指派及验收等业务能力。'
+            }}
+          </p>
+        </div>
+        <el-popconfirm
+          v-if="canDisableWorkspace"
+          title="停用后将只允许查看历史数据，确认继续吗？"
+          confirm-button-text="确认停用"
+          cancel-button-text="取消"
+          @confirm="handleDisableWorkspace"
+        >
+          <template #reference><el-button type="danger" plain>停用工作空间</el-button></template>
+        </el-popconfirm>
+        <el-button
+          v-if="canEnableWorkspace"
+          type="success"
+          :loading="submitting"
+          @click="handleEnableWorkspace"
+        >
+          重新启用
+        </el-button>
+        <span v-if="!canDisableWorkspace && !canEnableWorkspace" class="permission-hint"
+          >仅空间负责人可操作</span
+        >
+      </div>
+    </section>
 
-    <el-dialog v-model="editDialogVisible" title="工作空间设置" width="min(92vw, 520px)">
+    <el-dialog v-model="editDialogVisible" title="编辑工作空间" width="min(92vw, 520px)">
       <el-form label-position="top" @submit.prevent="handleUpdateWorkspace">
-        <el-form-item label="名称" required>
-          <el-input v-model="editForm.name" maxlength="100" show-word-limit />
-        </el-form-item>
-        <el-form-item label="说明">
-          <el-input v-model="editForm.description" type="textarea" maxlength="500" show-word-limit />
-        </el-form-item>
+        <el-form-item label="名称" required
+          ><el-input v-model="editForm.name" maxlength="100" show-word-limit
+        /></el-form-item>
+        <el-form-item label="说明"
+          ><el-input
+            v-model="editForm.description"
+            type="textarea"
+            :rows="4"
+            maxlength="500"
+            show-word-limit
+        /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="editDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleUpdateWorkspace">保存</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="memberDialogVisible" title="添加工作空间成员" width="min(92vw, 480px)">
-      <el-form label-position="top" @submit.prevent="handleAddMember">
-        <el-form-item label="选择用户" required>
-          <el-select
-            v-model="memberForm.userId"
-            filterable
-            remote
-            :remote-method="searchAvailableUsers"
-            :loading="userSearchLoading"
-            placeholder="输入用户名或显示名称搜索"
-            no-data-text="没有可添加的启用用户"
-          >
-            <el-option
-              v-for="user in availableUsers"
-              :key="user.id"
-              :label="`${user.displayName}（${user.username}）`"
-              :value="user.id"
-            />
-          </el-select>
-          <span class="form-hint">仅显示已启用且尚未加入当前工作空间的用户。</span>
-        </el-form-item>
-        <el-form-item label="初始角色" required>
-          <el-select v-model="memberForm.role">
-            <el-option label="负责人" value="OWNER" />
-            <el-option label="管理员" value="ADMIN" />
-            <el-option label="成员" value="MEMBER" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="memberDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleAddMember">添加</el-button>
+        <el-button type="primary" :loading="submitting" @click="handleUpdateWorkspace"
+          >保存</el-button
+        >
       </template>
     </el-dialog>
   </main>
 </template>
 
 <style scoped>
-.workspace-settings {
-  padding: 24px;
+.settings-page {
+  max-width: 1060px;
+  margin: 0 auto;
 }
-
-.workspace-settings__alert {
-  margin-bottom: 16px;
-}
-
-.workspace-card,
-.member-card {
-  margin-bottom: 16px;
-}
-
-.card-header {
+.page-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
+  gap: 20px;
+  margin-bottom: 25px;
 }
-
-.card-header--center {
-  align-items: center;
+.page-heading h1 {
+  margin: 0 0 7px;
+  color: #f2f6fb;
+  font-size: 29px;
 }
-
-.card-header h2 {
+.page-heading p {
   margin: 0;
-  font-size: 16px;
+  color: var(--bl-text-secondary);
+  font-size: 14px;
 }
-
-.card-subtitle {
-  color: #909399;
-  font-size: 13px;
-}
-
-.workspace-title {
-  display: flex;
+.primary-action {
+  display: inline-flex;
+  height: 43px;
   align-items: center;
   gap: 8px;
+  padding: 0 19px;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+  background: linear-gradient(135deg, #1680f7, #247bff);
+  border: 1px solid #3993ff;
+  border-radius: 8px;
 }
-
-.workspace-title h2 {
-  margin: 0;
-}
-
-.card-header p {
-  margin: 8px 0 0;
-  color: #606266;
-}
-
-.workspace-card__hint {
-  margin: 0;
-  color: #909399;
+.page-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding: 11px 14px;
+  color: #ffaaa5;
   font-size: 13px;
+  background: rgb(117 34 38 / 25%);
+  border: 1px solid rgb(226 76 76 / 30%);
+  border-radius: 8px;
 }
-
-.form-hint {
-  color: #909399;
+.page-alert button {
+  color: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+.settings-card {
+  margin-bottom: 17px;
+  background: linear-gradient(145deg, #171e26, #141a21);
+  border: 1px solid var(--bl-border);
+  border-radius: 9px;
+}
+.workspace-overview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 30px;
+  padding: 24px;
+}
+.workspace-overview__identity {
+  display: flex;
+  min-width: 260px;
+  align-items: center;
+  gap: 15px;
+}
+.workspace-overview__identity > span {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: white;
+  font-size: 20px;
+  background: linear-gradient(145deg, #1f80e9, #23a7dd);
+  border-radius: 9px;
+}
+.workspace-overview__title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.workspace-overview h2 {
+  margin: 0;
+  color: #edf3fa;
+  font-size: 19px;
+}
+.workspace-overview p {
+  margin: 7px 0 0;
+  color: var(--bl-muted);
   font-size: 12px;
 }
-
-@media (max-width: 760px) {
-  .workspace-settings {
-    padding: 16px;
+.workspace-overview dl {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(4, 1fr);
+  margin: 0;
+}
+.workspace-overview dl div {
+  padding-left: 20px;
+  border-left: 1px solid var(--bl-border);
+}
+.workspace-overview dt {
+  color: var(--bl-muted);
+  font-size: 11px;
+}
+.workspace-overview dd {
+  margin: 7px 0 0;
+  color: #d9e1eb;
+  font-size: 13px;
+}
+.settings-section > header {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  padding: 0 23px;
+  border-bottom: 1px solid var(--bl-border);
+}
+.settings-section h2 {
+  margin: 0;
+  color: #eaf0f7;
+  font-size: 16px;
+}
+.settings-section header p {
+  margin: 7px 0 0;
+  color: var(--bl-muted);
+  font-size: 12px;
+}
+.settings-row {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 18px;
+  padding: 17px 23px;
+  border-bottom: 1px solid rgb(43 52 63 / 70%);
+}
+.settings-row:last-child {
+  border-bottom: 0;
+}
+.settings-row span {
+  color: var(--bl-text-secondary);
+  font-size: 13px;
+}
+.settings-row strong {
+  color: #d9e1eb;
+  font-size: 13px;
+  font-weight: 500;
+}
+.danger-zone {
+  border-color: rgb(154 59 59 / 48%);
+}
+.danger-zone h2 {
+  color: #ff8881;
+}
+.danger-zone__action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 25px;
+  padding: 20px 23px;
+}
+.danger-zone__action strong {
+  color: #e3eaf3;
+  font-size: 13px;
+}
+.danger-zone__action p {
+  margin: 6px 0 0;
+  color: var(--bl-muted);
+  font-size: 11px;
+}
+.permission-hint {
+  color: var(--bl-muted);
+  font-size: 12px;
+}
+@media (max-width: 850px) {
+  .workspace-overview {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .workspace-overview dl {
+    width: 100%;
+  }
+}
+@media (max-width: 620px) {
+  .page-heading,
+  .danger-zone__action {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .primary-action {
+    justify-content: center;
+  }
+  .workspace-overview dl {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px 0;
+  }
+  .workspace-overview dl div:nth-child(odd) {
+    border-left: 0;
+    padding-left: 0;
+  }
+  .settings-row {
+    grid-template-columns: 1fr;
+    gap: 7px;
   }
 }
 </style>

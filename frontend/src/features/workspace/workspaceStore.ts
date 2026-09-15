@@ -48,7 +48,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       }
 
       const storedId = Number(localStorage.getItem(CURRENT_WORKSPACE_KEY))
-      const target = workspaces.value.find((workspace) => workspace.id === storedId) ?? workspaces.value[0]
+      const target =
+        workspaces.value.find((workspace) => workspace.id === storedId) ?? workspaces.value[0]
       if (target) {
         await selectWorkspace(target.id)
       }
