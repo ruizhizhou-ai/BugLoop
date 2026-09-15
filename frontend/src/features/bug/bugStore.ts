@@ -11,6 +11,7 @@ import {
   assignBug,
   createBug,
   createComment,
+  deleteComment,
   deleteBugAttachment,
   fetchAcceptances,
   fetchBugDetail,
@@ -20,6 +21,7 @@ import {
   fetchDescriptionHistoryDetail,
   fetchOperationLogs,
   rejectBug,
+  replyComment,
   saveFixDescription,
   setBugAcceptor,
   startBug,
@@ -161,6 +163,22 @@ export const useBugStore = defineStore('bug', () => {
     })
   }
 
+  /** 回复后重新加载第一页，保证完整评论树节点按时间正序立即同步到界面。 */
+  async function replyToComment(bugId: number, parentCommentId: number, contentMd: string): Promise<void> {
+    await withSubmitting(async () => {
+      await replyComment(bugId, parentCommentId, contentMd)
+      await loadComments(bugId, 1)
+    })
+  }
+
+  /** 删除成功后重新加载，服务端逻辑删除的父评论状态会同步反映到其回复项。 */
+  async function deleteCommentById(bugId: number, commentId: number): Promise<void> {
+    await withSubmitting(async () => {
+      await deleteComment(bugId, commentId)
+      await loadComments(bugId, 1)
+    })
+  }
+
   /** 并行加载操作日志、描述历史和验收历史，三者都是只读的追溯数据。 */
   async function loadTrace(bugId: number): Promise<void> {
     traceLoading.value = true
@@ -277,6 +295,8 @@ export const useBugStore = defineStore('bug', () => {
     reject,
     loadComments,
     addComment,
+    replyToComment,
+    deleteCommentById,
     loadTrace,
     openHistoryDetail,
     closeHistoryDetail,

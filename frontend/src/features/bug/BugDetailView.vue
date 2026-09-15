@@ -32,11 +32,11 @@ import 'element-plus/es/components/tag/style/css'
 import 'element-plus/es/components/timeline/style/css'
 import 'element-plus/es/components/timeline-item/style/css'
 import { MdEditor, MdPreview } from 'md-editor-v3'
-import type { ToolbarNames } from 'md-editor-v3'
 // style.css 同时包含编辑器与预览样式；preview.css 不含编辑器样式，单独引入会导致弹窗内编辑器错乱。
 import 'md-editor-v3/lib/style.css'
 
 import { useBugStore } from './bugStore'
+import BugCommentPanel from './BugCommentPanel.vue'
 import {
   ATTACHMENT_ACCEPT,
   BUG_PRIORITY_OPTIONS,
@@ -75,27 +75,18 @@ const bugStore = useBugStore()
 const auth = useAuthStore()
 const workspaceStore = useWorkspaceStore()
 
-const COMMENT_TOOLBARS: ToolbarNames[] = [
-  'bold',
-  'italic',
-  'quote',
-  'unorderedList',
-  'orderedList',
-  'code',
-  'link',
-  'preview',
-]
-
 const errorMessage = ref('')
 const acceptDialogVisible = ref(false)
 const acceptMode = ref<'accept' | 'reject'>('accept')
 const fixDialogVisible = ref(false)
 const personDialogVisible = ref(false)
 const infoDialogVisible = ref(false)
-const previewTab = ref<'comments' | 'logs' | 'history'>('comments')
-const commentDraft = ref('')
+const previewTab = ref<'logs' | 'history'>('logs')
 const attachmentInput = ref<HTMLInputElement | null>(null)
 const attachmentsExpanded = ref(false)
+// 历史记录默认收起，避免详情抽屉被长评论、验收与日志一次性撑满。
+const acceptancesExpanded = ref(false)
+const traceExpanded = ref(false)
 const imagePreviewVisible = ref(false)
 const imagePreviewLoading = ref(false)
 const imagePreviewUrl = ref('')
@@ -168,8 +159,6 @@ const canEditBasic = computed(
   () => mutable.value && (isManager.value || isCreator.value) && bug.value?.status !== 'CLOSED',
 )
 const canWriteAttachments = computed(() => mutable.value && bug.value?.status !== 'CLOSED')
-const canComment = computed(() => mutable.value)
-const hasMoreComments = computed(() => bugStore.comments.length < bugStore.commentsTotal)
 const historyDialogVisible = computed({
   get: () => bugStore.historyDetail !== null,
   set: (visible: boolean) => {
@@ -185,11 +174,11 @@ watch(
     }
     // 同一抽屉可连续切换不同 Bug，每次都重置局部输入并加载对应追溯数据。
     errorMessage.value = ''
-    commentDraft.value = ''
-    previewTab.value = 'comments'
+    previewTab.value = 'logs'
     attachmentsExpanded.value = false
+    acceptancesExpanded.value = false
+    traceExpanded.value = false
     void loadDetail()
-    void loadComments()
     void loadTrace()
   },
   { immediate: true },
@@ -203,13 +192,6 @@ async function loadDetail(): Promise<void> {
   }
 }
 
-async function loadComments(): Promise<void> {
-  try {
-    await bugStore.loadComments(resolvedBugId.value, 1)
-  } catch (error) {
-    errorMessage.value = isApiError(error) ? error.message : '加载评论失败'
-  }
-}
 
 async function loadTrace(): Promise<void> {
   try {
@@ -335,20 +317,6 @@ async function handleSavePerson(): Promise<void> {
   if (succeeded) {
     personDialogVisible.value = false
   }
-}
-
-async function handleAddComment(): Promise<void> {
-  const content = commentDraft.value.trim()
-  if (!content) {
-    errorMessage.value = '评论内容不能为空'
-    return
-  }
-  const succeeded = await runAction(() => bugStore.addComment(resolvedBugId.value, content))
-  if (succeeded) commentDraft.value = ''
-}
-
-async function handleLoadMoreComments(): Promise<void> {
-  await runAction(() => bugStore.loadComments(resolvedBugId.value, bugStore.commentsPage + 1))
 }
 
 function pickAttachment(): void {
@@ -626,25 +594,43 @@ onBeforeUnmount(clearImagePreviewUrl)
         <md-preview :model-value="bug.fixDescriptionMd" preview-theme="github" />
       </el-card>
 
-      <el-card v-if="bugStore.acceptances.length" shadow="never">
-        <template #header><h3>验收记录</h3></template>
-        <div v-for="record in bugStore.acceptances" :key="record.id" class="acceptance-record">
-          <div class="acceptance-record__head">
-            <el-tag :type="record.result === 'PASS' ? 'success' : 'danger'" size="small">
-              {{ record.result === 'PASS' ? '通过' : '驳回' }}
-            </el-tag>
-            <strong>{{ record.acceptorDisplayName }}</strong>
-            <span class="acceptance-record__flow">
-              {{ STATUS_META[record.fromStatus].label }} → {{ STATUS_META[record.toStatus].label }}
-            </span>
-            <span class="acceptance-record__time">{{ formatDateTime(record.createdAt) }}</span>
+      <el-card v-if="bugStore.acceptances.length" class="acceptance-section" shadow="never">
+        <template #header>
+          <button
+            type="button"
+            class="record-section__toggle"
+            :aria-expanded="acceptancesExpanded"
+            aria-controls="bug-acceptances"
+            @click="acceptancesExpanded = !acceptancesExpanded"
+          >
+            <span>验收记录</span>
+            <span class="record-section__count">{{ bugStore.acceptances.length }}</span>
+            <AppIcon
+              name="chevron-down"
+              :size="18"
+              :class="{ 'record-section__chevron--expanded': acceptancesExpanded }"
+            />
+          </button>
+        </template>
+        <div v-show="acceptancesExpanded" id="bug-acceptances">
+          <div v-for="record in bugStore.acceptances" :key="record.id" class="acceptance-record">
+            <div class="acceptance-record__head">
+              <el-tag :type="record.result === 'PASS' ? 'success' : 'danger'" size="small">
+                {{ record.result === 'PASS' ? '通过' : '驳回' }}
+              </el-tag>
+              <strong>{{ record.acceptorDisplayName }}</strong>
+              <span class="acceptance-record__flow">
+                {{ STATUS_META[record.fromStatus].label }} → {{ STATUS_META[record.toStatus].label }}
+              </span>
+              <span class="acceptance-record__time">{{ formatDateTime(record.createdAt) }}</span>
+            </div>
+            <md-preview
+              v-if="record.commentMd"
+              class="acceptance-record__comment"
+              :model-value="record.commentMd"
+              preview-theme="github"
+            />
           </div>
-          <md-preview
-            v-if="record.commentMd"
-            class="acceptance-record__comment"
-            :model-value="record.commentMd"
-            preview-theme="github"
-          />
         </div>
       </el-card>
 
@@ -718,16 +704,30 @@ onBeforeUnmount(clearImagePreviewUrl)
         </div>
       </section>
 
+      <BugCommentPanel
+        :bug-id="resolvedBugId"
+        :writable="mutable"
+      />
+
       <section class="detail-trace">
         <header class="detail-trace__tabs">
           <button
             type="button"
-            :class="{ active: previewTab === 'comments' }"
-            @click="previewTab = 'comments'"
+            class="detail-trace__toggle"
+            :aria-expanded="traceExpanded"
+            aria-controls="bug-trace"
+            @click="traceExpanded = !traceExpanded"
           >
-            评论
+            操作记录
+            <span class="record-section__count">{{ bugStore.logs.length }}</span>
+            <AppIcon
+              name="chevron-down"
+              :size="18"
+              :class="{ 'record-section__chevron--expanded': traceExpanded }"
+            />
           </button>
           <button
+            v-show="traceExpanded"
             type="button"
             :class="{ active: previewTab === 'logs' }"
             @click="previewTab = 'logs'"
@@ -735,55 +735,15 @@ onBeforeUnmount(clearImagePreviewUrl)
             操作日志
           </button>
           <button
+            v-show="traceExpanded"
             type="button"
             :class="{ active: previewTab === 'history' }"
             @click="previewTab = 'history'"
-          >
-            文档历史
-          </button>
+          >文档历史</button>
           <span v-if="bugStore.traceLoading">加载中…</span>
         </header>
 
-        <div v-if="previewTab === 'comments'" class="detail-trace__body">
-          <div v-if="canComment" class="comment-composer">
-            <!-- 评论输入仅保留约两行可见编辑区，工具栏仍可用于常用 Markdown 格式。 -->
-            <md-editor
-              v-model="commentDraft"
-              class="comment-composer__editor"
-              :toolbars="COMMENT_TOOLBARS"
-              :style="{ height: '126px' }"
-            />
-            <div class="comment-composer__footer">
-              <el-button type="primary" :loading="bugStore.submitting" @click="handleAddComment">
-                发表评论
-              </el-button>
-            </div>
-          </div>
-          <p v-else class="detail-trace__hint">工作空间已停用，只允许查看历史评论。</p>
-
-          <div v-if="bugStore.comments.length" class="comment-list">
-            <article v-for="comment in bugStore.comments" :key="comment.id" class="comment-item">
-              <span class="comment-item__avatar">{{
-                (comment.displayName || comment.username || 'U').slice(0, 1)
-              }}</span>
-              <div class="comment-item__body">
-                <div class="comment-item__head">
-                  <strong>{{ comment.displayName }}</strong>
-                  <span>{{ formatDateTime(comment.createdAt) }}</span>
-                </div>
-                <md-preview :model-value="comment.contentMd" preview-theme="github" />
-              </div>
-            </article>
-            <div v-if="hasMoreComments" class="comment-list__more">
-              <el-button text type="primary" @click="handleLoadMoreComments">
-                加载更多评论（{{ bugStore.comments.length }}/{{ bugStore.commentsTotal }}）
-              </el-button>
-            </div>
-          </div>
-          <el-empty v-else description="暂无评论" :image-size="64" />
-        </div>
-
-        <div v-else-if="previewTab === 'logs'" class="detail-trace__body">
+        <div v-show="traceExpanded && previewTab === 'logs'" id="bug-trace" class="detail-trace__body">
           <el-timeline v-if="bugStore.logs.length" class="trace-timeline">
             <el-timeline-item
               v-for="log in bugStore.logs"
@@ -797,7 +757,7 @@ onBeforeUnmount(clearImagePreviewUrl)
           <el-empty v-else description="暂无操作日志" :image-size="64" />
         </div>
 
-        <div v-else class="detail-trace__body">
+        <div v-show="traceExpanded && previewTab === 'history'" class="detail-trace__body">
           <div v-if="bugStore.history.length" class="history-list">
             <div v-for="item in bugStore.history" :key="item.id" class="history-item">
               <span class="history-item__version">v{{ item.versionNo }}</span>
@@ -1217,6 +1177,35 @@ onBeforeUnmount(clearImagePreviewUrl)
   margin-top: 8px;
 }
 
+/* 验收、日志等长记录共享收起入口，降低抽屉初始信息密度。 */
+.record-section__toggle,
+.detail-trace__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  color: var(--bl-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.record-section__count {
+  color: var(--bl-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.record-section__chevron--expanded {
+  transform: rotate(180deg);
+}
+
+.acceptance-section :deep(.el-card__header) {
+  padding: 14px 18px;
+}
+
 .detail-trace {
   margin-bottom: 16px;
   overflow: hidden;
@@ -1241,6 +1230,11 @@ onBeforeUnmount(clearImagePreviewUrl)
   cursor: pointer;
   background: transparent;
   border: 0;
+}
+
+.detail-trace__tabs .detail-trace__toggle {
+  margin-right: 8px;
+  color: var(--bl-text);
 }
 
 .detail-trace__tabs button.active {
@@ -1272,69 +1266,6 @@ onBeforeUnmount(clearImagePreviewUrl)
   margin: 0 0 14px;
   color: var(--bl-muted);
   font-size: 13px;
-}
-
-.comment-composer {
-  margin-bottom: 18px;
-}
-
-.comment-composer__editor {
-  /* 编辑器默认高度较大，评论场景以短文本为主，固定高度可为活动流腾出空间。 */
-  min-height: 126px;
-}
-
-.comment-composer__footer {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 10px;
-}
-
-.comment-item {
-  display: flex;
-  gap: 12px;
-  padding: 14px 0;
-  border-bottom: 1px solid var(--bl-border);
-}
-
-.comment-item:last-child {
-  border-bottom: 0;
-}
-
-.comment-item__avatar {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 auto;
-  place-items: center;
-  color: white;
-  font-size: 13px;
-  background: linear-gradient(145deg, #257be8, #4ca0ff);
-  border-radius: 50%;
-}
-
-.comment-item__body {
-  flex: 1;
-  min-width: 0;
-}
-
-.comment-item__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 6px;
-  color: var(--bl-muted);
-  font-size: 12px;
-}
-
-.comment-item__head strong {
-  color: var(--bl-text);
-  font-size: 13px;
-}
-
-.comment-list__more {
-  padding-top: 10px;
-  text-align: center;
 }
 
 .trace-timeline {

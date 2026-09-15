@@ -1,39 +1,43 @@
 /**
- * 本文件提供评论的分页查询和追加写入。
- * 查询关联用户展示字段，避免服务层逐条读取用户造成 N+1 查询。
+ * 本文件提供 Bug 评论的数据访问入口。
+ * 常规列表读取复用 MyBatis-Plus 条件构造器，只有需要并发安全的删除场景才使用显式行锁 SQL。
  */
 package com.wjfz.bugloop.bug.comment.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.wjfz.bugloop.bug.comment.entity.BugComment;
-import com.wjfz.bugloop.bug.comment.vo.BugCommentVO;
-import java.util.List;
+import java.time.LocalDateTime;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 /** Bug 评论数据访问入口。 */
 @Mapper
 public interface BugCommentMapper extends BaseMapper<BugComment> {
 
-    /** 按最新创建时间分页读取指定 Bug 的评论和用户展示信息。 */
-    @Select("""
-            SELECT c.id, c.user_id, u.username, u.display_name, c.content_md, c.created_at
-            FROM bug_comment c
-            LEFT JOIN sys_user u ON u.id = c.user_id
-            WHERE c.bug_id = #{bugId}
-            ORDER BY c.created_at DESC, c.id DESC
-            LIMIT #{limit} OFFSET #{offset}
-            """)
-    List<BugCommentVO> selectPageByBugId(@Param("bugId") Long bugId,
-                                         @Param("limit") int limit, @Param("offset") long offset);
+    /**
+     * 锁定单条评论，删除前使用以避免两个操作者同时将相同评论记两次审计日志。
+     *
+     * @param commentId 评论主键
+     * @return 评论实体，不存在时返回 null
+     */
+    @Select("SELECT * FROM bug_comment WHERE id = #{commentId} FOR UPDATE")
+    BugComment selectByIdForUpdate(@Param("commentId") Long commentId);
 
-    /** 按主键读取刚创建的评论，用于返回与列表一致的用户展示字段。 */
-    @Select("""
-            SELECT c.id, c.user_id, u.username, u.display_name, c.content_md, c.created_at
-            FROM bug_comment c
-            LEFT JOIN sys_user u ON u.id = c.user_id
-            WHERE c.id = #{commentId}
+    /**
+     * 逻辑删除评论并记录操作者与时间；物理记录保留给一级回复的“原评论已删除”提示使用。
+     *
+     * @param commentId 评论主键
+     * @param deletedBy 删除人
+     * @param deletedAt 删除时间
+     * @return 实际更新行数
+     */
+    @Update("""
+            UPDATE bug_comment
+            SET is_deleted = 1, deleted_by = #{deletedBy}, deleted_at = #{deletedAt}, updated_at = #{deletedAt}
+            WHERE id = #{commentId} AND is_deleted = 0
             """)
-    BugCommentVO selectViewById(@Param("commentId") Long commentId);
+    int markDeleted(@Param("commentId") Long commentId, @Param("deletedBy") Long deletedBy,
+                    @Param("deletedAt") LocalDateTime deletedAt);
 }

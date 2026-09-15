@@ -69,11 +69,20 @@ export interface BugCreated {
 
 /** 评论、操作日志和描述历史的展示字段与后端追溯 VO 一一对应。 */
 export interface BugComment {
-  id: number
+  commentId: number
+  bugId: number
   userId: number
-  username: string
+  username: string | null
   displayName: string
-  contentMd: string
+  /** 头像资料尚未接入用户档案，服务端返回 null 时由界面显示首字母头像。 */
+  avatar: string | null
+  /** 逻辑删除评论不会回传历史正文，前端仅展示删除占位。 */
+  contentMd: string | null
+  parentId: number | null
+  replyUserId: number | null
+  replyUsername: string | null
+  parentDeleted: boolean
+  deleted: boolean
   createdAt: string
 }
 
@@ -205,6 +214,22 @@ export function fetchComments(
 
 export function createComment(bugId: number, contentMd: string): Promise<BugComment> {
   return http.post<unknown, BugComment>(`/bugs/${bugId}/comments`, { contentMd })
+}
+
+/** 对指定顶级评论发表一级回复，被回复用户由服务端根据父评论确定。 */
+export function replyComment(
+  bugId: number,
+  parentCommentId: number,
+  contentMd: string,
+): Promise<BugComment> {
+  return http.post<unknown, BugComment>(`/bugs/${bugId}/comments/${parentCommentId}/replies`, {
+    contentMd,
+  })
+}
+
+/** 删除评论使用逻辑删除，后续回复仍可通过 parentDeleted 与 deleted 保留树状上下文。 */
+export function deleteComment(bugId: number, commentId: number): Promise<void> {
+  return http.delete<unknown, void>(`/bugs/${bugId}/comments/${commentId}`)
 }
 
 export function fetchOperationLogs(bugId: number): Promise<BugOperationLog[]> {

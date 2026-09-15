@@ -14,6 +14,7 @@ vi.mock('../bugApi', () => ({
   assignBug: vi.fn<typeof bugApi.assignBug>(),
   createBug: vi.fn<typeof bugApi.createBug>(),
   createComment: vi.fn<typeof bugApi.createComment>(),
+  deleteComment: vi.fn<typeof bugApi.deleteComment>(),
   deleteBugAttachment: vi.fn<typeof bugApi.deleteBugAttachment>(),
   fetchAcceptances: vi.fn<typeof bugApi.fetchAcceptances>(),
   fetchBugDetail: vi.fn<typeof bugApi.fetchBugDetail>(),
@@ -23,6 +24,7 @@ vi.mock('../bugApi', () => ({
   fetchDescriptionHistoryDetail: vi.fn<typeof bugApi.fetchDescriptionHistoryDetail>(),
   fetchOperationLogs: vi.fn<typeof bugApi.fetchOperationLogs>(),
   rejectBug: vi.fn<typeof bugApi.rejectBug>(),
+  replyComment: vi.fn<typeof bugApi.replyComment>(),
   saveFixDescription: vi.fn<typeof bugApi.saveFixDescription>(),
   setBugAcceptor: vi.fn<typeof bugApi.setBugAcceptor>(),
   startBug: vi.fn<typeof bugApi.startBug>(),
@@ -167,14 +169,21 @@ describe('bugStore', () => {
 
   it('评论分页应追加历史页，发表评论后应回到第一页刷新', async () => {
     const first: BugComment = {
-      id: 1,
+      commentId: 1,
+      bugId: 101,
       userId: 10,
       username: 'owner',
       displayName: '负责人',
+      avatar: null,
       contentMd: '第一条',
+      parentId: null,
+      replyUserId: null,
+      replyUsername: null,
+      parentDeleted: false,
+      deleted: false,
       createdAt: '2026-09-14T10:00:00',
     }
-    const second: BugComment = { ...first, id: 2, contentMd: '第二条' }
+    const second: BugComment = { ...first, commentId: 2, contentMd: '第二条' }
     vi.mocked(bugApi.fetchComments)
       .mockResolvedValueOnce({ records: [first], total: 2, page: 1, pageSize: 20 })
       .mockResolvedValueOnce({ records: [second], total: 2, page: 2, pageSize: 20 })
@@ -184,13 +193,13 @@ describe('bugStore', () => {
     const store = useBugStore()
     await store.loadComments(101)
     await store.loadComments(101, 2)
-    expect(store.comments.map((comment) => comment.id)).toEqual([1, 2])
+    expect(store.comments.map((comment) => comment.commentId)).toEqual([1, 2])
     expect(store.commentsPage).toBe(2)
 
     await store.addComment(101, '第二条')
     expect(bugApi.createComment).toHaveBeenCalledWith(101, '第二条')
     expect(bugApi.fetchComments).toHaveBeenLastCalledWith(101, 1, 20)
-    expect(store.comments.map((comment) => comment.id)).toEqual([1, 2])
+    expect(store.comments.map((comment) => comment.commentId)).toEqual([1, 2])
     expect(store.commentsPage).toBe(1)
     expect(store.submitting).toBe(false)
   })

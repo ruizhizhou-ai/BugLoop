@@ -44,4 +44,15 @@ class SchemaMigrationIT extends AbstractMysqlIntegrationTest {
 
         jdbcTemplate.update("DELETE FROM sys_user WHERE username = 'index_probe'");
     }
+
+    @Test
+    void 评论表应具备回复和逻辑删除字段() {
+        List<String> columns = jdbcTemplate.queryForList("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_schema = DATABASE() AND table_name = 'bug_comment'
+                """, String.class);
+
+        assertThat(columns).contains("parent_id", "reply_user_id", "updated_at", "is_deleted",
+                "deleted_by", "deleted_at");
+    }
 }

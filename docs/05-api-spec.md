@@ -67,6 +67,7 @@ HTTP 状态码需要与业务语义一致：
 | 40403 | Bug 不存在 |
 | 40404 | 附件不存在 |
 | 40405 | 描述历史版本不存在 |
+| 40406 | 评论不存在或已删除 |
 | 40901 | Bug 状态不允许当前操作 |
 | 40902 | 数据版本冲突 |
 | 40903 | 用户已经是工作空间成员 |
@@ -77,6 +78,7 @@ HTTP 状态码需要与业务语义一致：
 | 42203 | Bug 尚未指定负责人 |
 | 42204 | Bug 尚未指定验收人 |
 | 42205 | 指定人员不是当前工作空间成员 |
+| 42206 | 被回复评论不属于当前 Bug |
 | 50000 | 系统内部异常 |
 
 错误信息必须面向用户可理解，不能直接返回 Java 异常堆栈。
@@ -619,7 +621,25 @@ closed_at = NULL
 GET /api/bugs/{bugId}/comments
 ```
 
-支持分页。
+支持分页，按创建时间正序返回（最早的评论在前），同秒写入按主键兜底排序。
+
+每条评论包含：
+
+```Plain
+commentId
+bugId
+userId / username / displayName / avatar
+contentMd
+parentId / replyUserId / replyUsername
+parentDeleted
+deleted
+createdAt
+```
+
+- `parentId` 保留服务端记录的完整直接父子关系，前端可自行压缩展示层级
+- `parentDeleted` 表示父评论已被删除，用于把回复标记为「原评论已删除」
+- `avatar` 预留给后续头像资料，为空时前端用显示名称首字母兜底
+- 已逻辑删除的评论不出现在列表里
 
 ### 49.2 新增评论
 
@@ -635,9 +655,43 @@ Request：
 }
 ```
 
-评论内容不能为空，上限 60KB（与 `bug_comment.content_md` 的 TEXT 列上限对齐）。
+评论内容不能为空，最多 5000 个字符（服务端另有 60KB 字节上限兜底，与 `bug_comment.content_md` 的 TEXT 列上限对齐）。
+内容按 Markdown 保存，写入前用 HTML 解析器做基础 XSS 清洗，直接返回 `code 0` 的评论视图。
 
 评论遵守与 Bug 相同的空间边界：空间停用后不允许新增评论，但历史评论始终可查看；Bug 关闭后仍可评论。
+
+### 49.2.1 回复评论
+
+```Plain
+POST /api/bugs/{bugId}/comments/{parentCommentId}/replies
+```
+
+Request：
+
+```Json
+{
+  "contentMd": "我这边也复现了。"
+}
+```
+
+约束：
+
+- 回复内容不能为空，最多 5000 个字符
+- 父评论必须属于同一个 Bug 且未被删除，否则返回 `42206`
+- 被回复人由服务端按父评论作者确定，客户端不能指定
+- 父评论作者同样可以回复自己的评论
+
+### 49.2.2 删除评论
+
+```Plain
+DELETE /api/bugs/{bugId}/comments/{commentId}
+```
+
+- 逻辑删除：记录保留 `deleted_by` / `deleted_at`，列表不再返回该评论
+- 只有评论作者本人或 `SYSTEM_ADMIN` 可以删除；空间 `OWNER / ADMIN` 没有代删权限，越权返回 `40301`
+- 已删除或不存在返回 `40406`
+- 删除后回复记录仍保留，回复的 `parentDeleted` 变为 true
+- 写入 `DELETE_COMMENT` 操作日志
 
 ### 49.3 操作日志
 

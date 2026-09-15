@@ -1,6 +1,7 @@
-/** 本文件暴露 API Spec 49.1、49.2 的评论列表和新增评论接口。 */
+/** 本文件暴露 Bug 评论的列表、新增、多层回复和逻辑删除接口。 */
 package com.wjfz.bugloop.bug.comment.controller;
 
+import com.wjfz.bugloop.bug.comment.dto.CreateBugCommentReplyRequest;
 import com.wjfz.bugloop.bug.comment.dto.CreateBugCommentRequest;
 import com.wjfz.bugloop.bug.comment.service.CommentService;
 import com.wjfz.bugloop.bug.comment.vo.BugCommentVO;
@@ -8,6 +9,7 @@ import com.wjfz.bugloop.common.api.ApiResponse;
 import com.wjfz.bugloop.common.api.PageResponse;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -39,5 +41,19 @@ public class BugCommentController {
     public ApiResponse<BugCommentVO> create(@PathVariable Long bugId,
                                              @Valid @RequestBody CreateBugCommentRequest request) {
         return ApiResponse.success(service.create(bugId, request));
+    }
+
+    /** 对指定评论新增直接回复，服务端保留完整多层 parentId 关系。 */
+    @PostMapping("/{parentCommentId}/replies")
+    public ApiResponse<BugCommentVO> reply(@PathVariable Long bugId, @PathVariable Long parentCommentId,
+                                            @Valid @RequestBody CreateBugCommentReplyRequest request) {
+        return ApiResponse.success(service.reply(bugId, parentCommentId, request));
+    }
+
+    /** 删除自己的评论；仅平台 SYSTEM_ADMIN 可删除他人评论，实际执行逻辑删除。 */
+    @DeleteMapping("/{commentId}")
+    public ApiResponse<Void> delete(@PathVariable Long bugId, @PathVariable Long commentId) {
+        service.delete(bugId, commentId);
+        return ApiResponse.success(null);
     }
 }

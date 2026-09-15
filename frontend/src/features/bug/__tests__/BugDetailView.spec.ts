@@ -167,6 +167,7 @@ const stubs = {
   ElForm: { template: '<form @submit.prevent="$emit(\'submit\')"><slot /></form>' },
   ElFormItem: { template: '<label><slot /></label>' },
   AppIcon: { template: '<span class="app-icon-stub" />' },
+  BugCommentPanel: true,
 }
 
 async function mountDetail(bug: BugDetail, props: Record<string, unknown> = {}) {
@@ -359,35 +360,6 @@ describe('BugDetailView', () => {
 
     expect(wrapper.text()).toContain('张三')
     expect(wrapper.text()).toContain('创建了 BUG-000101')
-  })
-
-  it('评论列表展示作者，空评论不允许提交', async () => {
-    detailState.comments = [
-      {
-        id: 1,
-        userId: 12,
-        username: 'dev',
-        displayName: '王五',
-        contentMd: '测试环境也可以复现',
-        createdAt: '2026-09-14T11:00:00',
-      },
-    ]
-    detailState.commentsTotal = 1
-    const wrapper = await mountDetail({ ...BUG_BASE, assigneeId: CURRENT_USER.id })
-
-    expect(wrapper.text()).toContain('王五')
-
-    const submit = wrapper.findAll('button').find((button) => button.text().includes('发表评论'))
-    await submit?.trigger('click')
-
-    expect(storeMocks.addComment).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('评论内容不能为空')
-
-    // 错误以居中浮层展示，并可手动关闭，不再依赖页面顶部的提示条。
-    const notice = wrapper.get('.app-notice')
-    expect(notice.attributes('role')).toBe('alert')
-    await notice.get('.app-notice__close').trigger('click')
-    expect(wrapper.find('.app-notice').exists()).toBe(false)
   })
 
   it('关闭后的 Bug 不再显示附件附加入口', async () => {

@@ -58,8 +58,7 @@ public class BugControllerTest {
         developer = register("developer");
         tester = register("tester");
         outsider = register("outsider");
-        workspaceId = number(ok(owner, post("/api/workspaces")
-                .content("{\"name\":\"研发空间\"}")), "$.data.id");
+        workspaceId = createWorkspaceAsManager(owner, "研发空间");
         addMember(developer, "MEMBER");
         addMember(tester, "MEMBER");
     }
@@ -80,7 +79,7 @@ public class BugControllerTest {
                 .andExpect(jsonPath("$.data.attachments").isEmpty())
                 .andExpect(jsonPath("$.data.latestAcceptance").doesNotExist())
                 .andExpect(jsonPath("$.data.creator.passwordHash").doesNotExist());
-        long otherSpace = number(ok(outsider, post("/api/workspaces").content("{\"name\":\"外部空间\"}")), "$.data.id");
+        long otherSpace = createWorkspaceAsManager(outsider, "外部空间");
         long otherBug = number(ok(outsider, post("/api/workspaces/{id}/bugs", otherSpace)
                 .content("{\"title\":\"另一问题\",\"descriptionMd\":\"描述\"}")), "$.data.id");
         assertThat(otherBug).isNotEqualTo(bugId);
@@ -92,7 +91,7 @@ public class BugControllerTest {
     protected void 列表分页筛选和空间隔离() throws Exception {
         long first = createAssigned(owner, "筛选目标");
         create(owner, "{\"title\":\"不匹配\",\"descriptionMd\":\"描述\",\"priority\":\"P3\"}");
-        ok(outsider, post("/api/workspaces").content("{\"name\":\"另一个空间\"}"));
+        createWorkspaceAsManager(outsider, "另一个空间");
         ResultActions result = ok(owner, get("/api/workspaces/{id}/bugs", workspaceId)
                 .param("page", "1").param("pageSize", "1").param("keyword", "筛选")
                 .param("status", "TODO").param("priority", "P2")
@@ -330,6 +329,71 @@ public class BugControllerTest {
         fail(outsider, get("/api/bugs/{id}/acceptances", id), 403, 40302);
     }
 
+    /** 评论支持多层回复和逻辑删除；界面可压缩层级，但接口必须保留完整直接父子关系。 */
+    @Test
+    protected void 评论回复删除与权限边界() throws Exception {
+        long bugId = createAssigned(owner, "评论闭环");
+        long parentCommentId = number(ok(developer, post("/api/bugs/{id}/comments", bugId)
+                .content("{\"contentMd\":\"顶级评论\"}")), "$.data.commentId");
+        long replyCommentId = number(ok(tester,
+                post("/api/bugs/{bugId}/comments/{commentId}/replies", bugId, parentCommentId)
+                        .content("{\"contentMd\":\"一级回复\"}")), "$.data.commentId");
+        // 父评论作者同样拥有回复权限。
+        long selfReplyCommentId = number(ok(developer,
+                post("/api/bugs/{bugId}/comments/{commentId}/replies", bugId, parentCommentId)
+                        .content("{\"contentMd\":\"补充说明\"}")), "$.data.commentId");
+
+        ok(owner, get("/api/bugs/{id}/comments", bugId))
+                .andExpect(jsonPath("$.data.records.length()").value(3))
+                .andExpect(jsonPath("$.data.records[0].commentId").value(parentCommentId))
+                .andExpect(jsonPath("$.data.records[1].commentId").value(replyCommentId))
+                .andExpect(jsonPath("$.data.records[1].parentId").value(parentCommentId))
+                .andExpect(jsonPath("$.data.records[1].replyUsername").value("developer"))
+                .andExpect(jsonPath("$.data.records[1].parentDeleted").value(false))
+                .andExpect(jsonPath("$.data.records[2].commentId").value(selfReplyCommentId))
+                .andExpect(jsonPath("$.data.records[2].parentId").value(parentCommentId));
+
+        // 空间负责人同样不能删除平台管理员的发言，避免借由成员管理角色影响管理员留痕。
+        long adminCommentId = number(ok(systemAdmin, post("/api/bugs/{id}/comments", bugId)
+                .content("{\"contentMd\":\"系统管理员评论\"}")), "$.data.commentId");
+        fail(owner, delete("/api/bugs/{bugId}/comments/{commentId}", bugId, adminCommentId), 403, 40301);
+        ok(systemAdmin, delete("/api/bugs/{bugId}/comments/{commentId}", bugId, adminCommentId));
+
+        // 回复子评论时记录直接父评论，服务端支持任意层级；前端负责将其压缩为两层展示。
+        long nestedReplyId = number(ok(tester,
+                post("/api/bugs/{bugId}/comments/{commentId}/replies", bugId, replyCommentId)
+                        .content("{\"contentMd\":\"继续跟进\"}")), "$.data.commentId");
+        ok(owner, get("/api/bugs/{id}/comments", bugId))
+                .andExpect(jsonPath("$.data.records[4].commentId").value(nestedReplyId))
+                .andExpect(jsonPath("$.data.records[4].parentId").value(replyCommentId))
+                .andExpect(jsonPath("$.data.records[4].replyUsername").value("tester"));
+        long anotherBugId = create(owner, "{\"title\":\"其他评论归属\",\"descriptionMd\":\"描述\"}");
+        long otherCommentId = number(ok(owner, post("/api/bugs/{id}/comments", anotherBugId)
+                .content("{\"contentMd\":\"其他 Bug 评论\"}")), "$.data.commentId");
+        fail(tester, post("/api/bugs/{bugId}/comments/{commentId}/replies", bugId, otherCommentId)
+                .content("{\"contentMd\":\"跨 Bug 回复\"}"), 400, 42206);
+
+        // 评论删除遵循作者边界：空间 OWNER 也不能代删成员内容，只有平台系统管理员可治理全局内容。
+        fail(tester, delete("/api/bugs/{bugId}/comments/{commentId}", bugId, parentCommentId), 403, 40301);
+        fail(owner, delete("/api/bugs/{bugId}/comments/{commentId}", bugId, parentCommentId), 403, 40301);
+        ok(systemAdmin, delete("/api/bugs/{bugId}/comments/{commentId}", bugId, parentCommentId));
+        ok(owner, get("/api/bugs/{id}/comments", bugId))
+                .andExpect(jsonPath("$.data.records.length()").value(5))
+                .andExpect(jsonPath("$.data.records[0].commentId").value(parentCommentId))
+                .andExpect(jsonPath("$.data.records[0].deleted").value(true))
+                .andExpect(jsonPath("$.data.records[0].contentMd").doesNotExist())
+                .andExpect(jsonPath("$.data.records[1].commentId").value(replyCommentId))
+                .andExpect(jsonPath("$.data.records[1].parentDeleted").value(true))
+                .andExpect(jsonPath("$.data.records[2].commentId").value(selfReplyCommentId))
+                .andExpect(jsonPath("$.data.records[2].parentDeleted").value(true))
+                .andExpect(jsonPath("$.data.records[4].commentId").value(nestedReplyId))
+                .andExpect(jsonPath("$.data.records[4].parentDeleted").value(false));
+        assertThat(jdbc.queryForObject("SELECT is_deleted FROM bug_comment WHERE id = ?", Boolean.class,
+                parentCommentId)).isTrue();
+        fail(developer, post("/api/bugs/{id}/comments", bugId)
+                .content("{\"contentMd\":\"<script>alert(1)</script>\"}"), 400, 40001);
+    }
+
     /** 附件接口应校验扩展名、存储下载、逻辑删除和详情摘要同步，内部路径不能暴露。 */
     @Test
     protected void 附件上传下载和逻辑删除应完整闭环() throws Exception {
@@ -524,6 +588,22 @@ public class BugControllerTest {
     private void addMember(Session session, String role) throws Exception {
         ok(owner, post("/api/workspaces/{id}/members", workspaceId)
                 .content("{\"userId\":%d,\"role\":\"%s\"}".formatted(session.id(), role)));
+    }
+
+    /**
+     * 为测试用户临时授予空间管理员身份，再创建目标空间；完成后移除临时关系，
+     * 使 SYSTEM_ADMIN 保持非目标空间成员，继续覆盖跨空间只读与创建 Bug 的边界。
+     */
+    private long createWorkspaceAsManager(Session manager, String name) throws Exception {
+        long permissionWorkspaceId = number(ok(systemAdmin, post("/api/workspaces")
+                .content("{\"name\":\"%s-权限空间\"}".formatted(name))), "$.data.id");
+        ok(systemAdmin, post("/api/workspaces/{id}/members", permissionWorkspaceId)
+                .content("{\"userId\":%d,\"role\":\"ADMIN\"}".formatted(manager.id())));
+        long targetWorkspaceId = number(ok(manager, post("/api/workspaces")
+                .content("{\"name\":\"%s\"}".formatted(name))), "$.data.id");
+        ok(systemAdmin, delete("/api/workspaces/{workspaceId}/members/{userId}",
+                permissionWorkspaceId, manager.id()));
+        return targetWorkspaceId;
     }
 
     /** 创建指定负责人和验收人的标准 Bug。 */
