@@ -25,6 +25,7 @@ defineProps<{
     | 'sun'
     | 'moon'
     | 'chevron-down'
+    | 'external-link'
   size?: number
 }>()
 </script>
@@ -113,6 +114,9 @@ defineProps<{
     </template>
     <template v-else-if="name === 'chevron-down'">
       <path d="m7 10 5 5 5-5" />
+    </template>
+    <template v-else-if="name === 'external-link'">
+      <path d="M14 4h6v6M13 11l7-7M20 13v7H4V4h7" />
     </template>
     <template v-else>
       <path d="M6 6l12 12M18 6 6 18" />

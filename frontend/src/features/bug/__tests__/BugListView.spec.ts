@@ -26,9 +26,16 @@ vi.mock('../bugApi', () => ({
 }))
 
 const push = vi.fn<(location: unknown) => void>()
+const replace = vi.fn<(location: unknown) => void>()
 vi.mock('vue-router', () => ({
-  useRoute: () => ({ params: { workspaceId: '1' } }),
-  useRouter: () => ({ push }),
+  useRoute: () => ({
+    name: 'bug-list',
+    path: '/workspaces/1/bugs',
+    params: { workspaceId: '1' },
+    query: {},
+    meta: {},
+  }),
+  useRouter: () => ({ push, replace }),
   RouterLink: { template: '<a><slot /></a>' },
 }))
 
@@ -80,11 +87,13 @@ const stubs = {
   ElButton: RecursiveStub,
   ElCard: RecursiveStub,
   ElDatePicker: RecursiveStub,
+  ElDrawer: { props: ['modelValue'], template: '<aside v-if="modelValue"><slot /></aside>' },
   ElEmpty: RecursiveStub,
   ElInput: RecursiveStub,
   ElOption: RecursiveStub,
   ElPagination: RecursiveStub,
   ElSelect: RecursiveStub,
+  BugDetailView: true,
 }
 
 function mountList() {
@@ -98,6 +107,25 @@ describe('BugListView', () => {
     setActivePinia(createPinia())
     vi.resetAllMocks()
     workspaceState.isEnabled = true
+  })
+
+  it('点击 Bug 后应保留列表路由并用查询参数打开右侧详情', async () => {
+    vi.mocked(bugApi.fetchBugs).mockResolvedValue({
+      records: [BUG_ROW],
+      total: 1,
+      page: 1,
+      pageSize: 20,
+    })
+
+    const wrapper = mountList()
+    await vi.waitFor(() => expect(wrapper.text()).toContain('BUG-000101'))
+    await wrapper.get('button[aria-label="查看 Bug 详情"]').trigger('click')
+
+    expect(push).toHaveBeenCalledWith({
+      name: 'bug-list',
+      params: { workspaceId: '1' },
+      query: { bugId: '101' },
+    })
   })
 
   it('应按当前工作空间加载列表并展示编号、标题与中文状态优先级', async () => {

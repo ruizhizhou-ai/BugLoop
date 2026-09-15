@@ -1,6 +1,6 @@
 <!-- 本文件实现 Bug 详情页：完整信息展示、按角色与状态控制的操作按钮，以及各项业务弹窗。 -->
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ElAlert,
@@ -58,6 +58,21 @@ import { useWorkspaceStore } from '@/features/workspace/workspaceStore'
 import { downloadFile } from '@/shared/api/http'
 import { isApiError } from '@/shared/api/types'
 
+interface BugDetailViewProps {
+  /** 抽屉场景传入 Bug 主键；独立详情页未传时仍从路由读取。 */
+  bugId?: number
+  /** 控制详情在右侧抽屉中使用紧凑、无卡片堆叠的排版。 */
+  drawerMode?: boolean
+}
+
+const props = withDefaults(defineProps<BugDetailViewProps>(), {
+  bugId: undefined,
+  drawerMode: false,
+})
+const emit = defineEmits<{
+  close: []
+}>()
+
 const route = useRoute()
 const router = useRouter()
 const bugStore = useBugStore()
@@ -91,9 +106,10 @@ const personForm = reactive<{ userId: number | undefined }>({ userId: undefined 
 const infoForm = reactive({ title: '', descriptionMd: '', priority: 'P2' as BugPriority })
 const personTarget = ref<'assignee' | 'acceptor'>('assignee')
 
-const bugId = computed(() => Number(route.params.bugId))
+const resolvedBugId = computed(() => props.bugId ?? Number(route.params.bugId))
 const workspaceId = computed(() => Number(route.params.workspaceId))
-const bug = computed(() => bugStore.current)
+// 切换抽屉中的 Bug 时不展示上一个详情，等待新请求返回后再渲染。
+const bug = computed(() => (bugStore.current?.id === resolvedBugId.value ? bugStore.current : null))
 
 const currentUserId = computed(() => auth.user?.id)
 const isAssignee = computed(() => bug.value?.assigneeId === currentUserId.value)
@@ -142,15 +158,26 @@ const historyDialogVisible = computed({
   },
 })
 
-onMounted(() => {
-  void loadDetail()
-  void loadComments()
-  void loadTrace()
-})
+watch(
+  resolvedBugId,
+  (value) => {
+    if (!Number.isFinite(value) || value <= 0) {
+      return
+    }
+    // 同一抽屉可连续切换不同 Bug，每次都重置局部输入并加载对应追溯数据。
+    errorMessage.value = ''
+    commentDraft.value = ''
+    previewTab.value = 'comments'
+    void loadDetail()
+    void loadComments()
+    void loadTrace()
+  },
+  { immediate: true },
+)
 
 async function loadDetail(): Promise<void> {
   try {
-    await bugStore.loadDetail(bugId.value)
+    await bugStore.loadDetail(resolvedBugId.value)
   } catch (error) {
     errorMessage.value = isApiError(error) ? error.message : '加载 Bug 详情失败'
   }
@@ -158,7 +185,7 @@ async function loadDetail(): Promise<void> {
 
 async function loadComments(): Promise<void> {
   try {
-    await bugStore.loadComments(bugId.value, 1)
+    await bugStore.loadComments(resolvedBugId.value, 1)
   } catch (error) {
     errorMessage.value = isApiError(error) ? error.message : '加载评论失败'
   }
@@ -166,7 +193,7 @@ async function loadComments(): Promise<void> {
 
 async function loadTrace(): Promise<void> {
   try {
-    await bugStore.loadTrace(bugId.value)
+    await bugStore.loadTrace(resolvedBugId.value)
   } catch (error) {
     errorMessage.value = isApiError(error) ? error.message : '加载追溯记录失败'
   }
@@ -191,7 +218,7 @@ async function runAction(action: () => Promise<void>): Promise<boolean> {
 }
 
 async function handleStart(): Promise<void> {
-  await runAction(() => bugStore.start(bugId.value))
+  await runAction(() => bugStore.start(resolvedBugId.value))
 }
 
 /** 打开修复说明弹窗并回填当前草稿。 */
@@ -201,14 +228,16 @@ function openFixDialog(): void {
 }
 
 async function handleSaveFix(): Promise<void> {
-  const succeeded = await runAction(() => bugStore.saveFix(bugId.value, fixForm.fixDescriptionMd))
+  const succeeded = await runAction(() =>
+    bugStore.saveFix(resolvedBugId.value, fixForm.fixDescriptionMd),
+  )
   if (succeeded) {
     fixDialogVisible.value = false
   }
 }
 
 async function handleSubmit(): Promise<void> {
-  await runAction(() => bugStore.submit(bugId.value))
+  await runAction(() => bugStore.submit(resolvedBugId.value))
 }
 
 function openAcceptDialog(mode: 'accept' | 'reject'): void {
@@ -225,8 +254,8 @@ async function handleAcceptance(): Promise<void> {
   }
   const succeeded = await runAction(() =>
     acceptMode.value === 'accept'
-      ? bugStore.accept(bugId.value, comment || null)
-      : bugStore.reject(bugId.value, comment),
+      ? bugStore.accept(resolvedBugId.value, comment || null)
+      : bugStore.reject(resolvedBugId.value, comment),
   )
   if (succeeded) {
     acceptDialogVisible.value = false
@@ -252,7 +281,7 @@ async function handleUpdateBasic(): Promise<void> {
     return
   }
   const succeeded = await runAction(() =>
-    bugStore.updateBasic(bugId.value, {
+    bugStore.updateBasic(resolvedBugId.value, {
       title: infoForm.title.trim(),
       descriptionMd: infoForm.descriptionMd,
       priority: infoForm.priority,
@@ -280,8 +309,8 @@ async function handleSavePerson(): Promise<void> {
   }
   const succeeded = await runAction(() =>
     personTarget.value === 'assignee'
-      ? bugStore.assign(bugId.value, personForm.userId!)
-      : bugStore.setAcceptor(bugId.value, personForm.userId!),
+      ? bugStore.assign(resolvedBugId.value, personForm.userId!)
+      : bugStore.setAcceptor(resolvedBugId.value, personForm.userId!),
   )
   if (succeeded) {
     personDialogVisible.value = false
@@ -294,12 +323,12 @@ async function handleAddComment(): Promise<void> {
     errorMessage.value = '评论内容不能为空'
     return
   }
-  const succeeded = await runAction(() => bugStore.addComment(bugId.value, content))
+  const succeeded = await runAction(() => bugStore.addComment(resolvedBugId.value, content))
   if (succeeded) commentDraft.value = ''
 }
 
 async function handleLoadMoreComments(): Promise<void> {
-  await runAction(() => bugStore.loadComments(bugId.value, bugStore.commentsPage + 1))
+  await runAction(() => bugStore.loadComments(resolvedBugId.value, bugStore.commentsPage + 1))
 }
 
 function pickAttachment(): void {
@@ -320,7 +349,7 @@ async function handleAttachmentPicked(event: Event): Promise<void> {
     errorMessage.value = invalidReason
     return
   }
-  await runAction(() => bugStore.uploadAttachment(bugId.value, file))
+  await runAction(() => bugStore.uploadAttachment(resolvedBugId.value, file))
 }
 
 /** 下载走带鉴权头的二进制请求，成功后用临时链接触发浏览器保存。 */
@@ -342,20 +371,29 @@ async function handleDownload(attachment: BugAttachment): Promise<void> {
 }
 
 async function handleDeleteAttachment(attachmentId: number): Promise<void> {
-  await runAction(() => bugStore.removeAttachment(bugId.value, attachmentId))
+  await runAction(() => bugStore.removeAttachment(resolvedBugId.value, attachmentId))
 }
 
 async function openHistoryDetail(versionNo: number): Promise<void> {
-  await runAction(() => bugStore.openHistoryDetail(bugId.value, versionNo))
+  await runAction(() => bugStore.openHistoryDetail(resolvedBugId.value, versionNo))
 }
 
+/** 抽屉模式通知父级关闭；独立详情页则返回标准列表路由。 */
 function goBack(): void {
+  if (props.drawerMode) {
+    emit('close')
+    return
+  }
   void router.push({ name: 'bug-list', params: { workspaceId: workspaceId.value } })
 }
 </script>
 
 <template>
-  <main class="bug-detail">
+  <main
+    v-loading="bugStore.detailLoading"
+    class="bug-detail"
+    :class="{ 'bug-detail--drawer': drawerMode }"
+  >
     <el-alert
       v-if="errorMessage"
       class="bug-detail__alert"
@@ -366,7 +404,9 @@ function goBack(): void {
       @close="errorMessage = ''"
     />
 
-    <el-card v-if="!bug" shadow="never">
+    <div v-if="bugStore.detailLoading" class="bug-detail__loading" aria-label="正在加载详情" />
+
+    <el-card v-else-if="!bug" shadow="never">
       <el-empty description="Bug 不存在或无权访问">
         <el-button @click="goBack">返回列表</el-button>
       </el-empty>
@@ -417,7 +457,7 @@ function goBack(): void {
               >修改验收人</el-button
             >
             <el-button v-if="canEditBasic" @click="openInfoDialog">编辑信息</el-button>
-            <el-button @click="goBack">返回列表</el-button>
+            <el-button v-if="!drawerMode" @click="goBack">返回列表</el-button>
           </div>
         </div>
 
@@ -454,11 +494,7 @@ function goBack(): void {
 
       <el-card v-if="bugStore.acceptances.length" shadow="never">
         <template #header><h3>验收记录</h3></template>
-        <div
-          v-for="record in bugStore.acceptances"
-          :key="record.id"
-          class="acceptance-record"
-        >
+        <div v-for="record in bugStore.acceptances" :key="record.id" class="acceptance-record">
           <div class="acceptance-record__head">
             <el-tag :type="record.result === 'PASS' ? 'success' : 'danger'" size="small">
               {{ record.result === 'PASS' ? '通过' : '驳回' }}
@@ -564,11 +600,7 @@ function goBack(): void {
           <div v-if="canComment" class="comment-composer">
             <md-editor v-model="commentDraft" :toolbars="COMMENT_TOOLBARS" />
             <div class="comment-composer__footer">
-              <el-button
-                type="primary"
-                :loading="bugStore.submitting"
-                @click="handleAddComment"
-              >
+              <el-button type="primary" :loading="bugStore.submitting" @click="handleAddComment">
                 发表评论
               </el-button>
             </div>
@@ -754,6 +786,10 @@ function goBack(): void {
 
 .bug-detail__alert {
   margin-bottom: 16px;
+}
+
+.bug-detail__loading {
+  min-height: 320px;
 }
 
 .bug-detail :deep(.el-card) {
@@ -1038,6 +1074,86 @@ function goBack(): void {
   font-size: 12px;
 }
 
+/* 抽屉内采用 Plane 式连续内容流，去掉独立详情页的卡片间隙，减少右侧窄栏中的视觉割裂。 */
+.bug-detail--drawer {
+  width: 100%;
+  max-width: none;
+  min-height: 100%;
+  padding: 22px 30px 42px;
+}
+
+.bug-detail--drawer :deep(.el-card) {
+  margin-bottom: 0;
+  background: transparent !important;
+  border: 0;
+  border-bottom: 1px solid var(--bl-border);
+  border-radius: 0;
+  box-shadow: none !important;
+}
+
+.bug-detail--drawer :deep(.el-card__header) {
+  padding: 22px 4px 12px;
+  border-bottom: 0;
+}
+
+.bug-detail--drawer :deep(.el-card__body) {
+  padding: 18px 4px 24px;
+}
+
+.bug-detail--drawer .bug-detail__summary :deep(.el-card__body) {
+  padding-top: 6px;
+}
+
+.bug-detail--drawer .bug-detail__title-row {
+  display: block;
+}
+
+.bug-detail--drawer .bug-detail__title-main {
+  display: block;
+}
+
+.bug-detail--drawer .bug-detail__no {
+  display: block;
+  margin-bottom: 10px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+.bug-detail--drawer .bug-detail__title-main h2 {
+  font-size: 24px;
+  line-height: 1.35;
+}
+
+.bug-detail--drawer .bug-detail__actions {
+  margin-top: 20px;
+}
+
+.bug-detail--drawer .bug-detail__meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 14px 22px;
+  margin-top: 22px;
+  padding: 18px 0 4px;
+  border-top: 1px solid var(--bl-border);
+}
+
+.bug-detail--drawer .detail-trace {
+  margin: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.bug-detail--drawer .detail-trace__tabs {
+  padding: 0 4px;
+}
+
+.bug-detail--drawer .detail-trace__body {
+  padding: 20px 4px;
+}
+
 @media (max-width: 650px) {
   .card-header-row,
   .acceptance-record__head {
@@ -1047,6 +1163,14 @@ function goBack(): void {
 
   .acceptance-record__time {
     margin-left: 0;
+  }
+
+  .bug-detail--drawer {
+    padding: 18px 18px 34px;
+  }
+
+  .bug-detail--drawer .bug-detail__meta {
+    grid-template-columns: 1fr;
   }
 }
 </style>

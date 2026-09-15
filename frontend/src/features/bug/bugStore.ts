@@ -55,6 +55,7 @@ export const useBugStore = defineStore('bug', () => {
   const query = reactive<BugListQuery>(createDefaultQuery())
   const current = ref<BugDetail | null>(null)
   const loading = ref(false)
+  const detailLoading = ref(false)
   const submitting = ref(false)
   const comments = ref<BugComment[]>([])
   const commentsTotal = ref(0)
@@ -102,11 +103,12 @@ export const useBugStore = defineStore('bug', () => {
 
   /** 加载详情，进入详情页时调用。 */
   async function loadDetail(bugId: number): Promise<void> {
-    loading.value = true
+    // 详情抽屉与列表同时存在，使用独立加载态避免打开抽屉时遮挡整张列表。
+    detailLoading.value = true
     try {
       current.value = await fetchBugDetail(bugId)
     } finally {
-      loading.value = false
+      detailLoading.value = false
     }
   }
 
@@ -220,6 +222,7 @@ export const useBugStore = defineStore('bug', () => {
   function reset(): void {
     resetQuery()
     loading.value = false
+    detailLoading.value = false
     submitting.value = false
     comments.value = []
     commentsTotal.value = 0
@@ -250,6 +253,7 @@ export const useBugStore = defineStore('bug', () => {
     query,
     current,
     loading,
+    detailLoading,
     submitting,
     comments,
     commentsTotal,
