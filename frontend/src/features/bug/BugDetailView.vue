@@ -14,8 +14,6 @@ import {
   ElOption,
   ElPopconfirm,
   ElSelect,
-  ElTable,
-  ElTableColumn,
   ElTag,
   ElTimeline,
   ElTimelineItem,
@@ -32,8 +30,6 @@ import 'element-plus/es/components/option/style/css'
 import 'element-plus/es/components/popconfirm/style/css'
 import 'element-plus/es/components/popper/style/css'
 import 'element-plus/es/components/select/style/css'
-import 'element-plus/es/components/table/style/css'
-import 'element-plus/es/components/table-column/style/css'
 import 'element-plus/es/components/tag/style/css'
 import 'element-plus/es/components/timeline/style/css'
 import 'element-plus/es/components/timeline-item/style/css'
@@ -55,6 +51,7 @@ import {
 import type { BugAttachment, BugPriority } from './bugApi'
 import { useAuthStore } from '@/features/auth/authStore'
 import { useWorkspaceStore } from '@/features/workspace/workspaceStore'
+import AppIcon from '@/shared/components/AppIcon.vue'
 import { downloadFile } from '@/shared/api/http'
 import { isApiError } from '@/shared/api/types'
 
@@ -99,6 +96,7 @@ const infoDialogVisible = ref(false)
 const previewTab = ref<'comments' | 'logs' | 'history'>('comments')
 const commentDraft = ref('')
 const attachmentInput = ref<HTMLInputElement | null>(null)
+const attachmentsExpanded = ref(false)
 const imagePreviewVisible = ref(false)
 const imagePreviewLoading = ref(false)
 const imagePreviewUrl = ref('')
@@ -114,6 +112,19 @@ const resolvedBugId = computed(() => props.bugId ?? Number(route.params.bugId))
 const workspaceId = computed(() => Number(route.params.workspaceId))
 // 切换抽屉中的 Bug 时不展示上一个详情，等待新请求返回后再渲染。
 const bug = computed(() => (bugStore.current?.id === resolvedBugId.value ? bugStore.current : null))
+/**
+ * 将 Markdown 压缩为抽屉头部可扫读的一行摘要；完整内容仍在下方的问题描述区展示。
+ */
+const descriptionSummary = computed(() => {
+  const markdown = bug.value?.descriptionMd?.trim()
+  if (!markdown) return ''
+
+  return markdown
+    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/[>*_`~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+})
 
 const currentUserId = computed(() => auth.user?.id)
 const isAssignee = computed(() => bug.value?.assigneeId === currentUserId.value)
@@ -143,7 +154,12 @@ const canSubmit = computed(
 const canAccept = computed(
   () => mutable.value && isAcceptor.value && bug.value?.status === 'WAIT_ACCEPTANCE',
 )
-const canManagePeople = computed(
+// 负责人在开始处理后锁定，避免修复过程被中途换人；驳回重开后可重新分配。
+const canAssign = computed(
+  () => mutable.value && isManager.value && ['TODO', 'REOPENED'].includes(bug.value?.status ?? ''),
+)
+// 验收人在提交前可因排班等原因调整，提交后锁定，确保待验收状态的责任人唯一。
+const canChangeAcceptor = computed(
   () =>
     mutable.value &&
     isManager.value &&
@@ -172,6 +188,7 @@ watch(
     errorMessage.value = ''
     commentDraft.value = ''
     previewTab.value = 'comments'
+    attachmentsExpanded.value = false
     void loadDetail()
     void loadComments()
     void loadTrace()
@@ -298,7 +315,7 @@ async function handleUpdateBasic(): Promise<void> {
 }
 
 function openPersonDialog(assignee: boolean): void {
-  if (!bug.value) {
+  if (!bug.value || (assignee ? !canAssign.value : !canChangeAcceptor.value)) {
     return
   }
   personTarget.value = assignee ? 'assignee' : 'acceptor'
@@ -353,7 +370,11 @@ async function handleAttachmentPicked(event: Event): Promise<void> {
     errorMessage.value = invalidReason
     return
   }
-  await runAction(() => bugStore.uploadAttachment(resolvedBugId.value, file))
+  const succeeded = await runAction(() => bugStore.uploadAttachment(resolvedBugId.value, file))
+  if (succeeded) {
+    // 上传完成后自动展开，用户无需再额外点击即可确认新附件已出现。
+    attachmentsExpanded.value = true
+  }
 }
 
 /** 下载走带鉴权头的二进制请求，成功后用临时链接触发浏览器保存。 */
@@ -471,6 +492,21 @@ onBeforeUnmount(clearImagePreviewUrl)
             <span class="bug-detail__no">{{ bug.bugNo }}</span>
             <h2>{{ bug.title }}</h2>
           </div>
+          <div v-if="drawerMode" class="bug-detail__drawer-overview">
+            <button
+              type="button"
+              class="bug-detail__description-trigger"
+              :class="{ 'is-empty': !descriptionSummary }"
+              :disabled="!canEditBasic"
+              @click="openInfoDialog"
+            >
+              {{ descriptionSummary || '点击添加问题描述' }}
+            </button>
+            <p class="bug-detail__drawer-updated">
+              <AppIcon name="clock" :size="17" />
+              最后更新于 {{ formatDateTime(bug.updatedAt) }}
+            </p>
+          </div>
           <div class="bug-detail__actions">
             <el-button
               v-if="canStart"
@@ -504,8 +540,8 @@ onBeforeUnmount(clearImagePreviewUrl)
                 >验收驳回</el-button
               >
             </template>
-            <el-button v-if="canManagePeople" @click="openPersonDialog(true)">指派</el-button>
-            <el-button v-if="canManagePeople" @click="openPersonDialog(false)"
+            <el-button v-if="canAssign" @click="openPersonDialog(true)">指派</el-button>
+            <el-button v-if="canChangeAcceptor" @click="openPersonDialog(false)"
               >修改验收人</el-button
             >
             <el-button v-if="canEditBasic" @click="openInfoDialog">编辑信息</el-button>
@@ -513,7 +549,7 @@ onBeforeUnmount(clearImagePreviewUrl)
           </div>
         </div>
 
-        <div class="bug-detail__meta">
+        <div v-if="!drawerMode" class="bug-detail__meta">
           <el-tag :type="STATUS_META[bug.status].tag">{{ STATUS_META[bug.status].label }}</el-tag>
           <el-tag :type="PRIORITY_META[bug.priority].tag">{{
             PRIORITY_META[bug.priority].label
@@ -532,11 +568,66 @@ onBeforeUnmount(clearImagePreviewUrl)
             >关闭：{{ formatDateTime(bug.closedAt) }}</span
           >
         </div>
-      </el-card>
 
-      <el-card shadow="never">
-        <template #header><h3>问题描述</h3></template>
-        <md-preview :model-value="bug.descriptionMd" preview-theme="github" />
+        <!-- 抽屉使用 Plane 风格的属性行，避免标签与元数据在窄栏中混排而难以扫读。 -->
+        <section v-else class="bug-properties" aria-label="Bug 属性">
+          <h3>属性</h3>
+          <dl class="bug-properties__list">
+            <div class="bug-properties__row">
+              <dt><AppIcon name="acceptance" :size="19" />状态</dt>
+              <dd>
+                <el-tag :type="STATUS_META[bug.status].tag" effect="plain">
+                  {{ STATUS_META[bug.status].label }}
+                </el-tag>
+              </dd>
+            </div>
+            <div class="bug-properties__row">
+              <dt><AppIcon name="assigned" :size="19" />负责人</dt>
+              <dd class="bug-properties__person">
+                <span class="bug-properties__avatar">{{ bug.assignee?.displayName?.slice(0, 1) ?? '-' }}</span>
+                {{ bug.assignee?.displayName ?? '未指派' }}
+              </dd>
+            </div>
+            <div class="bug-properties__row">
+              <dt><AppIcon name="priority" :size="19" />优先级</dt>
+              <dd>
+                <el-tag :type="PRIORITY_META[bug.priority].tag" effect="plain">
+                  {{ PRIORITY_META[bug.priority].label }}
+                </el-tag>
+              </dd>
+            </div>
+            <div class="bug-properties__row">
+              <dt><AppIcon name="submitted" :size="19" />提交人</dt>
+              <dd class="bug-properties__person">
+                <span class="bug-properties__avatar">{{ bug.creator?.displayName?.slice(0, 1) ?? '-' }}</span>
+                {{ bug.creator?.displayName ?? '-' }}
+              </dd>
+            </div>
+            <div class="bug-properties__row">
+              <dt><AppIcon name="acceptance" :size="19" />验收人</dt>
+              <dd class="bug-properties__person">
+                <span class="bug-properties__avatar">{{ bug.acceptor?.displayName?.slice(0, 1) ?? '-' }}</span>
+                {{ bug.acceptor?.displayName ?? '-' }}
+              </dd>
+            </div>
+            <div v-if="bug.status === 'REOPENED'" class="bug-properties__row">
+              <dt><AppIcon name="bugs" :size="19" />重新打开</dt>
+              <dd>已重新打开 {{ bug.reopenCount }} 次</dd>
+            </div>
+            <div class="bug-properties__row">
+              <dt><AppIcon name="calendar" :size="19" />创建时间</dt>
+              <dd>{{ formatDateTime(bug.createdAt) }}</dd>
+            </div>
+            <div class="bug-properties__row">
+              <dt><AppIcon name="clock" :size="19" />更新时间</dt>
+              <dd>{{ formatDateTime(bug.updatedAt) }}</dd>
+            </div>
+            <div v-if="bug.closedAt" class="bug-properties__row">
+              <dt><AppIcon name="clock" :size="19" />关闭时间</dt>
+              <dd>{{ formatDateTime(bug.closedAt) }}</dd>
+            </div>
+          </dl>
+        </section>
       </el-card>
 
       <el-card v-if="bug.fixDescriptionMd" shadow="never">
@@ -566,23 +657,7 @@ onBeforeUnmount(clearImagePreviewUrl)
         </div>
       </el-card>
 
-      <el-card shadow="never">
-        <template #header>
-          <div class="card-header-row">
-            <h3>附件</h3>
-            <div v-if="canWriteAttachments" class="attachment-toolbar">
-              <span>单个不超过 20MB，最多 20 个</span>
-              <el-button
-                type="primary"
-                plain
-                :loading="bugStore.submitting"
-                @click="pickAttachment"
-              >
-                上传附件
-              </el-button>
-            </div>
-          </div>
-        </template>
+      <section class="attachment-section" aria-label="附件">
         <input
           ref="attachmentInput"
           class="attachment-input"
@@ -590,45 +665,67 @@ onBeforeUnmount(clearImagePreviewUrl)
           :accept="ATTACHMENT_ACCEPT"
           @change="handleAttachmentPicked"
         />
-        <el-table v-if="bug.attachments.length" :data="bug.attachments" row-key="id">
-          <el-table-column prop="originalName" label="文件名" min-width="240" />
-          <el-table-column label="大小" width="120">
-            <template #default="{ row }">{{ formatFileSize(row.fileSize) }}</template>
-          </el-table-column>
-          <el-table-column label="上传时间" width="170">
-            <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
-          </el-table-column>
-          <el-table-column label="操作" width="140">
-            <template #default="{ row }">
-              <el-button
-                v-if="isPreviewableImage(row as BugAttachment)"
-                link
-                type="primary"
-                @click="openImagePreview(row as BugAttachment)"
-              >
-                预览
-              </el-button>
-              <el-button link type="primary" @click="handleDownload(row as BugAttachment)"
-                >下载</el-button
-              >
-              <el-popconfirm
-                v-if="canWriteAttachments"
-                title="删除后不可恢复，确认删除该附件吗？"
-                confirm-button-text="删除"
-                cancel-button-text="取消"
-                @confirm="handleDeleteAttachment(row.id)"
-              >
-                <template #reference><el-button link type="danger">删除</el-button></template>
-              </el-popconfirm>
-            </template>
-          </el-table-column>
-        </el-table>
-        <el-empty
-          v-else
-          :description="canWriteAttachments ? '暂无附件，可点击右上角上传' : '暂无附件'"
-          :image-size="72"
-        />
-      </el-card>
+        <div class="attachment-section__header">
+          <button
+            type="button"
+            class="attachment-section__toggle"
+            :aria-expanded="attachmentsExpanded"
+            aria-controls="bug-attachments"
+            @click="attachmentsExpanded = !attachmentsExpanded"
+          >
+            <strong>附件</strong>
+            <span>{{ bug.attachments.length }}</span>
+            <AppIcon
+              name="chevron-down"
+              :size="19"
+              :class="{ 'attachment-section__chevron--expanded': attachmentsExpanded }"
+            />
+          </button>
+          <button
+            v-if="canWriteAttachments"
+            type="button"
+            class="attachment-section__add"
+            :disabled="bugStore.submitting"
+            title="附加文件（单个不超过 20MB，单个 Bug 最多 20 个）"
+            aria-label="附加文件"
+            @click="pickAttachment"
+          >
+            <AppIcon name="plus" :size="23" />
+          </button>
+        </div>
+        <div v-show="attachmentsExpanded" id="bug-attachments" class="attachment-section__content">
+          <ul v-if="bug.attachments.length" class="attachment-list">
+            <li v-for="attachment in bug.attachments" :key="attachment.id" class="attachment-row">
+              <span class="attachment-row__icon"><AppIcon name="submitted" :size="22" /></span>
+              <span class="attachment-row__name" :title="attachment.originalName">
+                {{ attachment.originalName }}
+              </span>
+              <span class="attachment-row__size">{{ formatFileSize(attachment.fileSize) }}</span>
+              <span class="attachment-row__actions">
+                <el-button
+                  v-if="isPreviewableImage(attachment)"
+                  link
+                  type="primary"
+                  @click="openImagePreview(attachment)"
+                >
+                  预览
+                </el-button>
+                <el-button link type="primary" @click="handleDownload(attachment)">下载</el-button>
+                <el-popconfirm
+                  v-if="canWriteAttachments"
+                  title="删除后不可恢复，确认删除该附件吗？"
+                  confirm-button-text="删除"
+                  cancel-button-text="取消"
+                  @confirm="handleDeleteAttachment(attachment.id)"
+                >
+                  <template #reference><el-button link type="danger">删除</el-button></template>
+                </el-popconfirm>
+              </span>
+            </li>
+          </ul>
+          <p v-else class="attachment-section__empty">暂无附件</p>
+        </div>
+      </section>
 
       <section class="detail-trace">
         <header class="detail-trace__tabs">
@@ -658,7 +755,13 @@ onBeforeUnmount(clearImagePreviewUrl)
 
         <div v-if="previewTab === 'comments'" class="detail-trace__body">
           <div v-if="canComment" class="comment-composer">
-            <md-editor v-model="commentDraft" :toolbars="COMMENT_TOOLBARS" />
+            <!-- 评论输入仅保留约两行可见编辑区，工具栏仍可用于常用 Markdown 格式。 -->
+            <md-editor
+              v-model="commentDraft"
+              class="comment-composer__editor"
+              :toolbars="COMMENT_TOOLBARS"
+              :style="{ height: '126px' }"
+            />
             <div class="comment-composer__footer">
               <el-button type="primary" :loading="bugStore.submitting" @click="handleAddComment">
                 发表评论
@@ -785,6 +888,13 @@ onBeforeUnmount(clearImagePreviewUrl)
             />
           </el-select>
         </el-form-item>
+        <p class="person-dialog__hint">
+          {{
+            personTarget === 'assignee'
+              ? '负责人只能在待处理或重新打开时调整；状态进入处理中后将锁定。'
+              : '验收人可在提交前调整；进入待验收后将锁定。'
+          }}
+        </p>
       </el-form>
       <template #footer>
         <el-button @click="personDialogVisible = false">取消</el-button>
@@ -922,19 +1032,138 @@ onBeforeUnmount(clearImagePreviewUrl)
   font-size: 13px;
 }
 
-.card-header-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+.attachment-section {
+  margin-bottom: 16px;
+  overflow: hidden;
+  background: var(--bl-panel-raised);
+  border: 1px solid var(--bl-border);
+  border-radius: 9px;
 }
 
-.attachment-toolbar {
+.attachment-section__header {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+}
+
+.attachment-section__toggle,
+.attachment-section__add {
   display: flex;
   align-items: center;
+  color: var(--bl-text);
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.attachment-section__toggle {
+  gap: 10px;
+  padding: 8px 2px;
+  font-size: 16px;
+}
+
+.attachment-section__toggle strong {
+  font-weight: 650;
+}
+
+.attachment-section__toggle span {
+  color: var(--bl-text-secondary);
+}
+
+.attachment-section__toggle:hover,
+.attachment-section__toggle:focus-visible {
+  color: var(--bl-primary-light);
+}
+
+.attachment-section__chevron--expanded {
+  transform: rotate(180deg);
+}
+
+.attachment-section__add {
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
+}
+
+.attachment-section__add:hover:not(:disabled),
+.attachment-section__add:focus-visible:not(:disabled) {
+  color: var(--bl-primary-light);
+  background: var(--bl-control-hover);
+}
+
+.attachment-section__add:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.attachment-section__content {
+  padding: 0 16px 8px;
+}
+
+.attachment-list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.attachment-row {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
   gap: 12px;
+  border-top: 1px solid var(--bl-border);
+}
+
+.attachment-row__icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--bl-primary-light);
+  background: var(--bl-control-bg);
+  border-radius: 6px;
+}
+
+.attachment-row__name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--bl-text);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-row__size {
+  flex: 0 0 auto;
+  color: var(--bl-text-secondary);
+  font-size: 13px;
+}
+
+.attachment-row__actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.attachment-section__empty {
+  padding: 12px 0 16px;
+  margin: 0;
   color: var(--bl-muted);
-  font-size: 12px;
+  font-size: 13px;
+  border-top: 1px solid var(--bl-border);
+}
+
+.person-dialog__hint {
+  margin: -4px 0 0;
+  color: var(--bl-muted);
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 .attachment-input {
@@ -1060,6 +1289,11 @@ onBeforeUnmount(clearImagePreviewUrl)
 
 .comment-composer {
   margin-bottom: 18px;
+}
+
+.comment-composer__editor {
+  /* 编辑器默认高度较大，评论场景以短文本为主，固定高度可为活动流腾出空间。 */
+  min-height: 126px;
 }
 
 .comment-composer__footer {
@@ -1197,7 +1431,8 @@ onBeforeUnmount(clearImagePreviewUrl)
 }
 
 .bug-detail--drawer .bug-detail__summary :deep(.el-card__body) {
-  padding-top: 6px;
+  /* 为编号、标题与描述摘要留出呼吸感，贴近 Plane 详情面板的顶部层级。 */
+  padding-top: 50px;
 }
 
 .bug-detail--drawer .bug-detail__title-row {
@@ -1218,21 +1453,125 @@ onBeforeUnmount(clearImagePreviewUrl)
 }
 
 .bug-detail--drawer .bug-detail__title-main h2 {
-  font-size: 24px;
+  font-size: 28px;
   line-height: 1.35;
 }
 
-.bug-detail--drawer .bug-detail__actions {
-  margin-top: 20px;
+.bug-detail__drawer-overview {
+  max-width: 680px;
+  margin-top: 16px;
 }
 
-.bug-detail--drawer .bug-detail__meta {
+.bug-detail__description-trigger {
+  display: -webkit-box;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  color: var(--bl-text-secondary);
+  font: inherit;
+  font-size: 17px;
+  line-height: 1.65;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.bug-detail__description-trigger.is-empty {
+  color: var(--bl-muted);
+}
+
+.bug-detail__description-trigger:not(:disabled):hover {
+  color: var(--bl-primary-light);
+}
+
+.bug-detail__description-trigger:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.bug-detail__drawer-updated {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  margin: 54px 0 0;
+  color: var(--bl-text-secondary);
+  font-size: 13px;
+}
+
+.bug-detail--drawer .bug-detail__actions {
+  gap: 10px;
+  margin-top: 30px;
+}
+
+.bug-detail--drawer .bug-detail__actions :deep(.el-button) {
+  min-height: 36px;
+  margin: 0;
+  padding: 0 13px;
+  border-radius: 8px;
+}
+
+.bug-properties {
+  margin-top: 28px;
+}
+
+.bug-properties h3 {
+  margin: 0 0 12px;
+  color: var(--bl-text);
+  font-size: 16px;
+}
+
+.bug-properties__list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(180px, 1fr));
-  gap: 14px 22px;
-  margin-top: 22px;
-  padding: 18px 0 4px;
-  border-top: 1px solid var(--bl-border);
+  margin: 0;
+}
+
+.bug-properties__row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: center;
+  min-height: 48px;
+  column-gap: 18px;
+}
+
+.bug-properties__row dt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--bl-text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.bug-properties__row dd {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  color: var(--bl-text);
+  font-size: 14px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.bug-properties__person {
+  gap: 8px;
+}
+
+.bug-properties__avatar {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--bl-primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .bug-detail--drawer .detail-trace {
@@ -1240,6 +1579,23 @@ onBeforeUnmount(clearImagePreviewUrl)
   background: transparent;
   border: 0;
   border-radius: 0;
+}
+
+/* 抽屉中附件与其他内容保持连续的工作项流，不额外绘制独立卡片。 */
+.bug-detail--drawer .attachment-section {
+  margin: 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--bl-border);
+  border-radius: 0;
+}
+
+.bug-detail--drawer .attachment-section__header {
+  padding: 0 4px;
+}
+
+.bug-detail--drawer .attachment-section__content {
+  padding: 0 4px 8px;
 }
 
 .bug-detail--drawer .detail-trace__tabs {
@@ -1251,7 +1607,6 @@ onBeforeUnmount(clearImagePreviewUrl)
 }
 
 @media (max-width: 650px) {
-  .card-header-row,
   .acceptance-record__head {
     align-items: flex-start;
     flex-direction: column;
@@ -1265,8 +1620,37 @@ onBeforeUnmount(clearImagePreviewUrl)
     padding: 18px 18px 34px;
   }
 
-  .bug-detail--drawer .bug-detail__meta {
-    grid-template-columns: 1fr;
+  .bug-detail--drawer .bug-detail__summary :deep(.el-card__body) {
+    padding-top: 30px;
+  }
+
+  .bug-detail--drawer .bug-detail__title-main h2 {
+    font-size: 24px;
+  }
+
+  .bug-detail__drawer-updated {
+    justify-content: flex-start;
+    margin-top: 30px;
+  }
+
+  .bug-properties__row {
+    grid-template-columns: 118px minmax(0, 1fr);
+    column-gap: 12px;
+  }
+
+  .attachment-row {
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding: 10px 0;
+  }
+
+  .attachment-row__name {
+    flex: 1;
+  }
+
+  .attachment-row__actions {
+    width: 100%;
+    margin-left: 38px;
   }
 }
 </style>

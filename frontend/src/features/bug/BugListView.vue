@@ -6,12 +6,15 @@ import {
   ElAlert,
   ElButton,
   ElCard,
+  ElCheckbox,
+  ElCheckboxGroup,
   ElDatePicker,
   ElDrawer,
   ElEmpty,
   ElInput,
   ElOption,
   ElPagination,
+  ElPopover,
   ElSelect,
   ElTable,
   ElTableColumn,
@@ -19,6 +22,7 @@ import {
 import 'element-plus/es/components/alert/style/css'
 import 'element-plus/es/components/button/style/css'
 import 'element-plus/es/components/card/style/css'
+import 'element-plus/es/components/checkbox/style/css'
 import 'element-plus/es/components/date-picker/style/css'
 import 'element-plus/es/components/drawer/style/css'
 import 'element-plus/es/components/empty/style/css'
@@ -26,6 +30,7 @@ import 'element-plus/es/components/input/style/css'
 import 'element-plus/es/components/option/style/css'
 import 'element-plus/es/components/pagination/style/css'
 import 'element-plus/es/components/popper/style/css'
+import 'element-plus/es/components/popover/style/css'
 import 'element-plus/es/components/select/style/css'
 import 'element-plus/es/components/table/style/css'
 import 'element-plus/es/components/table-column/style/css'
@@ -52,6 +57,19 @@ const workspaceStore = useWorkspaceStore()
 
 const errorMessage = ref('')
 const dateRange = ref<[string, string] | null>(null)
+
+type OptionalFilterKey = 'status' | 'priority' | 'assignee' | 'creator' | 'acceptor' | 'date'
+
+const OPTIONAL_FILTER_OPTIONS: Array<{ key: OptionalFilterKey; label: string }> = [
+  { key: 'status', label: '状态' },
+  { key: 'priority', label: '优先级' },
+  { key: 'assignee', label: '负责人' },
+  { key: 'creator', label: '提交人' },
+  { key: 'acceptor', label: '验收人' },
+  { key: 'date', label: '创建时间' },
+]
+// 初始不主动展开可选项；已有预置值的字段由 isFilterVisible 自动显现。
+const visibleOptionalFilters = ref<OptionalFilterKey[]>([])
 
 const workspaceId = computed(() => Number(route.params.workspaceId))
 const canCreate = computed(() => workspaceStore.isEnabled)
@@ -113,8 +131,84 @@ async function applyFilters(): Promise<void> {
 async function resetFilters(): Promise<void> {
   bugStore.resetQuery()
   dateRange.value = null
+  visibleOptionalFilters.value = []
   await loadBugs()
 }
+
+/** 判断一个可选筛选项是否已有生效值，保证预置条件不会因默认折叠而不可见。 */
+function hasFilterValue(key: OptionalFilterKey): boolean {
+  switch (key) {
+    case 'status':
+      return Boolean(bugStore.query.status)
+    case 'priority':
+      return Boolean(bugStore.query.priority)
+    case 'assignee':
+      return bugStore.query.assigneeId !== undefined
+    case 'creator':
+      return bugStore.query.creatorId !== undefined
+    case 'acceptor':
+      return bugStore.query.acceptorId !== undefined
+    case 'date':
+      return Boolean(bugStore.query.startDate || bugStore.query.endDate)
+  }
+}
+
+/** 已手动选择展示，或当前已携带预置筛选值时，才渲染可选条件。 */
+function isFilterVisible(key: OptionalFilterKey): boolean {
+  return visibleOptionalFilters.value.includes(key) || hasFilterValue(key)
+}
+
+/** 菜单勾选状态同时反映手动展示项与路由预置的生效条件，避免已显示字段在菜单中看似未选中。 */
+const selectedOptionalFilters = computed(() =>
+  OPTIONAL_FILTER_OPTIONS.filter(({ key }) => isFilterVisible(key)).map(({ key }) => key),
+)
+
+/** 清除被隐藏条件的实际查询值，避免界面看不到却仍然影响列表结果。 */
+function clearFilterValue(key: OptionalFilterKey): void {
+  switch (key) {
+    case 'status':
+      bugStore.query.status = undefined
+      break
+    case 'priority':
+      bugStore.query.priority = undefined
+      break
+    case 'assignee':
+      bugStore.query.assigneeId = undefined
+      break
+    case 'creator':
+      bugStore.query.creatorId = undefined
+      break
+    case 'acceptor':
+      bugStore.query.acceptorId = undefined
+      break
+    case 'date':
+      dateRange.value = null
+      bugStore.query.startDate = undefined
+      bugStore.query.endDate = undefined
+      break
+  }
+}
+
+/**
+ * 更新用户选择的筛选项。取消勾选已生效的条件时立即清理并重新查询，保持筛选状态可见可控。
+ */
+function handleVisibleFiltersChange(nextValues: Array<string | number | boolean>): void {
+  // Element Plus 允许复选框值为字符串或数字；这里仅接收本页声明的筛选键，隔离组件库通用类型。
+  const nextKeys = nextValues.filter(
+    (value): value is OptionalFilterKey =>
+      typeof value === 'string' && OPTIONAL_FILTER_OPTIONS.some(({ key }) => key === value),
+  )
+  const hiddenKeys = selectedOptionalFilters.value.filter((key) => !nextKeys.includes(key))
+  const requiresReload = hiddenKeys.some((key) => hasFilterValue(key))
+  hiddenKeys.forEach(clearFilterValue)
+  visibleOptionalFilters.value = nextKeys
+  if (requiresReload) void applyFilters()
+}
+
+/** 关键词或任一可选条件已有输入时，提供重置入口以快速回到默认精简状态。 */
+const hasActiveFilters = computed(
+  () => Boolean(bugStore.query.keyword) || OPTIONAL_FILTER_OPTIONS.some(({ key }) => hasFilterValue(key)),
+)
 
 /** 日期范围转为服务端需要的 YYYY-MM-DD 参数。 */
 function handleDateChange(value: [string, string] | null): void {
@@ -164,9 +258,27 @@ function openBugStandalone(): void {
   })
 }
 
-/** 当前抽屉对应的表格行保持选中高亮，便于用户确认上下文。 */
+/**
+ * 标记所有数据行并高亮当前抽屉对应行。
+ * 通用行标记同时供页面外部点击判断使用：切换另一条 Bug 时不应先关闭抽屉，而应直接刷新详情。
+ */
 function tableRowClassName({ row }: { row: { id: number } }): string {
-  return row.id === selectedBugId.value ? 'bug-list__row--selected' : ''
+  return row.id === selectedBugId.value
+    ? 'bug-list__data-row bug-list__row--selected'
+    : 'bug-list__data-row'
+}
+
+/**
+ * 点击抽屉外的列表页面时收起详情；点击任一列表行例外，交由行点击直接切换到新的 Bug。
+ * 抽屉使用非模态模式以保留 Plane 式主从浏览，因此需要在页面层补足“点击外部关闭”的交互。
+ */
+function handleListPageClick(event: MouseEvent): void {
+  if (!detailDrawerVisible.value || !(event.target instanceof Element)) return
+  // Drawer 默认不一定 Teleport 到 body；因此必须先排除详情自身，避免编辑、评论等内部点击误触关闭。
+  if (event.target.closest('.bug-detail-drawer')) return
+  // Element Plus 的行点击在冒泡阶段触发。捕获阶段先识别原生行，才能避免先执行关闭再打开的竞态。
+  if (event.target.closest('.bug-list__data-row, .el-table__row')) return
+  closeBug()
 }
 
 /** 进入当前工作空间的新建 Bug 页面。 */
@@ -192,7 +304,7 @@ function avatarTone(user: { id: number } | null): string {
 </script>
 
 <template>
-  <main class="bug-list">
+  <main class="bug-list" @click.capture="handleListPageClick">
     <header class="bug-list__page-heading">
       <div>
         <h1>{{ pageTitle }}</h1>
@@ -227,8 +339,9 @@ function avatarTone(user: { id: number } | null): string {
           <template #prefix><AppIcon name="search" :size="17" /></template>
         </el-input>
         <el-select
+          v-if="isFilterVisible('status')"
           v-model="bugStore.query.status"
-          class="filter-item"
+          class="filter-item filter-item--status"
           placeholder="状态"
           clearable
           @change="applyFilters"
@@ -241,8 +354,9 @@ function avatarTone(user: { id: number } | null): string {
           />
         </el-select>
         <el-select
+          v-if="isFilterVisible('priority')"
           v-model="bugStore.query.priority"
-          class="filter-item"
+          class="filter-item filter-item--priority"
           placeholder="优先级"
           clearable
           @change="applyFilters"
@@ -255,8 +369,9 @@ function avatarTone(user: { id: number } | null): string {
           />
         </el-select>
         <el-select
+          v-if="isFilterVisible('assignee')"
           v-model="bugStore.query.assigneeId"
-          class="filter-item"
+          class="filter-item filter-item--assignee"
           placeholder="负责人"
           clearable
           filterable
@@ -270,8 +385,9 @@ function avatarTone(user: { id: number } | null): string {
           />
         </el-select>
         <el-select
+          v-if="isFilterVisible('creator')"
           v-model="bugStore.query.creatorId"
-          class="filter-item"
+          class="filter-item filter-item--creator"
           placeholder="提交人"
           clearable
           filterable
@@ -284,7 +400,24 @@ function avatarTone(user: { id: number } | null): string {
             :value="member.userId"
           />
         </el-select>
+        <el-select
+          v-if="isFilterVisible('acceptor')"
+          v-model="bugStore.query.acceptorId"
+          class="filter-item filter-item--acceptor"
+          placeholder="验收人"
+          clearable
+          filterable
+          @change="applyFilters"
+        >
+          <el-option
+            v-for="member in workspaceStore.members"
+            :key="member.userId"
+            :label="member.displayName"
+            :value="member.userId"
+          />
+        </el-select>
         <el-date-picker
+          v-if="isFilterVisible('date')"
           :model-value="dateRange"
           class="filter-item filter-item--date"
           type="daterange"
@@ -294,7 +427,32 @@ function avatarTone(user: { id: number } | null): string {
           range-separator="→"
           @update:model-value="handleDateChange"
         />
-        <el-button class="filter-reset" @click="resetFilters">重置</el-button>
+        <el-popover placement="bottom-start" :width="250" trigger="click">
+          <template #reference>
+            <el-button class="filter-customize" plain>
+              <AppIcon name="filter" :size="16" />
+              筛选条件
+            </el-button>
+          </template>
+          <div class="filter-customize__popover">
+            <strong>显示筛选条件</strong>
+            <el-checkbox-group
+              :model-value="selectedOptionalFilters"
+              @update:model-value="handleVisibleFiltersChange"
+            >
+              <el-checkbox
+                v-for="option in OPTIONAL_FILTER_OPTIONS"
+                :key="option.key"
+                :value="option.key"
+              >
+                {{ option.label }}
+              </el-checkbox>
+            </el-checkbox-group>
+          </div>
+        </el-popover>
+        <el-button v-if="hasActiveFilters" class="filter-reset" @click="resetFilters">
+          重置
+        </el-button>
       </div>
     </el-card>
 
@@ -449,6 +607,7 @@ function avatarTone(user: { id: number } | null): string {
         <div class="bug-detail-drawer__content">
           <BugDetailView
             v-if="selectedBugId"
+            :key="selectedBugId"
             :bug-id="selectedBugId"
             drawer-mode
             @close="closeBug"
@@ -518,42 +677,40 @@ function avatarTone(user: { id: number } | null): string {
 }
 
 .bug-list__filter-panel :deep(.el-card__body) {
-  padding: 22px 23px;
+  padding: 16px 18px;
 }
 
 .bug-list__filters {
-  display: grid;
-  grid-template-columns: minmax(240px, 310px) repeat(4, minmax(130px, 150px)) 1fr auto;
-  gap: 13px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
   align-items: center;
 }
 
 .filter-item {
-  width: 100%;
+  flex: 0 1 136px;
+  width: 136px;
 }
 
 .filter-item--keyword {
-  grid-column: 1;
+  flex: 1 1 220px;
+  max-width: 280px;
 }
 
 .filter-item--date {
-  grid-column: 1 / span 2;
-  grid-row: 2;
-  width: 100% !important;
+  flex-basis: 292px;
+  width: 292px !important;
 }
 
 .filter-reset {
-  grid-column: 7;
-  grid-row: 2;
-  min-width: 80px;
-  justify-self: end;
+  min-width: 70px;
 }
 
 .bug-list__filters :deep(.el-input__wrapper),
 .bug-list__filters :deep(.el-select__wrapper),
 .bug-list__filters :deep(.el-date-editor.el-input__wrapper) {
-  min-height: 44px;
-  padding: 0 14px;
+  min-height: 38px;
+  padding: 0 11px;
   border-radius: 8px;
 }
 
@@ -570,9 +727,48 @@ function avatarTone(user: { id: number } | null): string {
 }
 
 .filter-reset.el-button {
-  min-height: 42px;
-  padding: 0 22px;
+  min-height: 38px;
+  padding: 0 16px;
   border-radius: 8px;
+  font-size: 13px;
+}
+
+.filter-customize.el-button {
+  min-height: 38px;
+  padding: 0 13px;
+  color: var(--bl-text-secondary);
+  border-color: var(--bl-border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.filter-customize.el-button:hover {
+  color: var(--bl-primary);
+  border-color: color-mix(in srgb, var(--bl-primary) 45%, var(--bl-border));
+}
+
+.filter-customize__popover {
+  padding: 2px;
+}
+
+.filter-customize__popover strong {
+  display: block;
+  margin: 3px 4px 9px;
+  color: var(--bl-text);
+  font-size: 13px;
+}
+
+.filter-customize__popover :deep(.el-checkbox-group) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 4px;
+}
+
+.filter-customize__popover :deep(.el-checkbox) {
+  height: 26px;
+  margin-right: 0;
+  color: var(--bl-text-secondary);
+  font-size: 13px;
 }
 
 .bug-list__table-panel :deep(.el-card__body) {
@@ -982,23 +1178,8 @@ function avatarTone(user: { id: number } | null): string {
 }
 
 @media (max-width: 1320px) {
-  .bug-list__filters {
-    grid-template-columns: minmax(220px, 1.5fr) repeat(3, minmax(130px, 1fr));
-  }
-
-  .bug-list__filters > :nth-child(5) {
-    grid-column: 1;
-    grid-row: 2;
-  }
-
-  .filter-item--date {
-    grid-column: 2 / span 2;
-    grid-row: 2;
-  }
-
-  .filter-reset {
-    grid-column: 4;
-    grid-row: 2;
+  .filter-item--keyword {
+    max-width: none;
   }
 }
 
@@ -1012,7 +1193,6 @@ function avatarTone(user: { id: number } | null): string {
   }
 
   .bug-list__filters {
-    display: flex;
     flex-direction: column;
     align-items: stretch;
   }
@@ -1023,6 +1203,10 @@ function avatarTone(user: { id: number } | null): string {
   }
 
   .filter-reset {
+    width: 100%;
+  }
+
+  .filter-customize.el-button {
     width: 100%;
   }
 

@@ -26,6 +26,11 @@ defineProps<{
     | 'moon'
     | 'chevron-down'
     | 'external-link'
+    | 'priority'
+    | 'calendar'
+    | 'clock'
+    | 'paperclip'
+    | 'filter'
   size?: number
 }>()
 </script>
@@ -117,6 +122,23 @@ defineProps<{
     </template>
     <template v-else-if="name === 'external-link'">
       <path d="M14 4h6v6M13 11l7-7M20 13v7H4V4h7" />
+    </template>
+    <template v-else-if="name === 'priority'">
+      <path d="M6 20v-7M12 20V8M18 20V4" />
+    </template>
+    <template v-else-if="name === 'calendar'">
+      <rect x="3" y="5" width="18" height="16" rx="2" />
+      <path d="M7 3v4M17 3v4M3 10h18" />
+    </template>
+    <template v-else-if="name === 'clock'">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3.5 2" />
+    </template>
+    <template v-else-if="name === 'paperclip'">
+      <path d="m20.5 11.5-8.3 8.3a5 5 0 0 1-7.1-7.1l8.3-8.3a3.5 3.5 0 0 1 5 5L10 17.7a2 2 0 1 1-2.8-2.8l7.6-7.6" />
+    </template>
+    <template v-else-if="name === 'filter'">
+      <path d="M4 6h16M7 12h10M10 18h4" />
     </template>
     <template v-else>
       <path d="M6 6l12 12M18 6 6 18" />

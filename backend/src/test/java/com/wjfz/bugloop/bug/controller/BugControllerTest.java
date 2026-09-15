@@ -135,6 +135,28 @@ public class BugControllerTest {
                 .andExpect(jsonPath("$.data.acceptorId").value(developer.id()));
     }
 
+    /** 负责人开始处理后必须冻结；验收人可在提交前调整，但待验收后同样冻结。 */
+    @Test
+    protected void 人员调整按职责冻结时机执行() throws Exception {
+        long id = createAssigned(owner, "人员冻结");
+        ok(developer, post("/api/bugs/{id}/start", id))
+                .andExpect(jsonPath("$.data.status").value("PROCESSING"));
+
+        // 处理中换负责人会中断责任链，服务端必须拒绝，不能仅靠前端隐藏按钮。
+        fail(owner, post("/api/bugs/{id}/assign", id)
+                .content("{\"assigneeId\":%d}".formatted(tester.id())), 409, 40901);
+        // 验收人尚未进入验收阶段，允许调整以应对排班和人员变动。
+        ok(owner, post("/api/bugs/{id}/acceptor", id)
+                .content("{\"acceptorId\":%d}".formatted(owner.id())))
+                .andExpect(jsonPath("$.data.acceptorId").value(owner.id()));
+
+        fix(developer, id, "修复内容");
+        ok(developer, post("/api/bugs/{id}/submit", id))
+                .andExpect(jsonPath("$.data.status").value("WAIT_ACCEPTANCE"));
+        fail(owner, post("/api/bugs/{id}/acceptor", id)
+                .content("{\"acceptorId\":%d}".formatted(tester.id())), 409, 40901);
+    }
+
     /** 描述修改保存旧版本，无变化不生成历史；禁止以普通更新覆盖状态或责任字段。 */
     @Test
     protected void 编辑权限字段白名单和描述历史() throws Exception {

@@ -195,16 +195,23 @@ public class BugService {
         return detail(bug, context.access());
     }
 
-    /** 指派或转派负责人，仅管理员可在待处理、处理中、重新打开时执行。 */
+    /**
+     * 指派或转派负责人，仅管理员可在待处理或重新打开时执行。
+     * 开始处理后负责人即承担当前修复链路，禁止中途转派以避免修复说明、提交验收与责任人脱节。
+     */
     @Transactional
     public BugDetailVO assign(Long bugId, AssignBugRequest request) {
-        return changePerson(bugId, request.assigneeId(), true);
+        return changePerson(bugId, request.assigneeId(), true, BugStatus.TODO, BugStatus.REOPENED);
     }
 
-    /** 调整验收人，与负责人调整采用相同的角色和状态边界。 */
+    /**
+     * 调整验收人，仅管理员可在提交验收前执行。
+     * 处理中允许替换验收人以应对排班变化；进入待验收后必须锁定，保证验收责任清晰且不可被绕过。
+     */
     @Transactional
     public BugDetailVO setAcceptor(Long bugId, SetBugAcceptorRequest request) {
-        return changePerson(bugId, request.acceptorId(), false);
+        return changePerson(bugId, request.acceptorId(), false,
+                BugStatus.TODO, BugStatus.PROCESSING, BugStatus.REOPENED);
     }
 
     /** 当前负责人从待处理或重新打开状态开始处理。 */
@@ -263,12 +270,15 @@ public class BugService {
         return completeAcceptance(bugId, request == null ? null : request.commentMd(), false);
     }
 
-    /** 在已开启的公共事务内统一处理人员变更，并为相同人员的重复保存返回原数据。 */
-    private BugDetailVO changePerson(Long bugId, Long userId, boolean assignee) {
+    /**
+     * 在已开启的公共事务内统一处理人员变更，并为相同人员的重复保存返回原数据。
+     * @param allowedStatuses 对应职责允许调整的状态；负责人和验收人的冻结时机不同，不能共用同一状态边界
+     */
+    private BugDetailVO changePerson(Long bugId, Long userId, boolean assignee, BugStatus... allowedStatuses) {
         WriteContext context = writable(bugId);
         Bug bug = context.bug();
         permissions.requireManager(context.access());
-        requireStatus(bug, BugStatus.TODO, BugStatus.PROCESSING, BugStatus.REOPENED);
+        requireStatus(bug, allowedStatuses);
         User target = permissions.requireActiveMember(bug.getWorkspaceId(), userId);
         Long previousId = assignee ? bug.getAssigneeId() : bug.getAcceptorId();
         if (!Objects.equals(previousId, userId)) {

@@ -166,11 +166,12 @@ const stubs = {
   ElDialog: { template: '<div><slot /><slot name="footer" /></div>' },
   ElForm: { template: '<form @submit.prevent="$emit(\'submit\')"><slot /></form>' },
   ElFormItem: { template: '<label><slot /></label>' },
+  AppIcon: { template: '<span class="app-icon-stub" />' },
 }
 
-async function mountDetail(bug: BugDetail) {
+async function mountDetail(bug: BugDetail, props: Record<string, unknown> = {}) {
   detailState.current = bug
-  const wrapper = mount(BugDetailView, { global: { stubs } })
+  const wrapper = mount(BugDetailView, { props, global: { stubs } })
   await nextTick()
   return wrapper
 }
@@ -195,12 +196,51 @@ describe('BugDetailView', () => {
     storeMocks.isVersionConflict.mockReturnValue(false)
   })
 
+  it('抽屉模式应按属性行展示 Bug 的核心字段', async () => {
+    const wrapper = await mountDetail(
+      { ...BUG_BASE, assignee: { id: 11, username: 'dev', displayName: '李四' } },
+      { drawerMode: true },
+    )
+
+    expect(wrapper.find('.bug-properties').exists()).toBe(true)
+    expect(wrapper.text()).toContain('属性')
+    expect(wrapper.text()).toContain('状态')
+    expect(wrapper.text()).toContain('负责人')
+    expect(wrapper.text()).toContain('优先级')
+    expect(wrapper.text()).toContain('提交人')
+    expect(wrapper.text()).toContain('验收人')
+    expect(wrapper.text()).toContain('创建时间')
+    expect(wrapper.text()).toContain('更新时间')
+    expect(wrapper.text()).toContain('李四')
+  })
+
+  it('抽屉模式应在属性前展示编号、标题和问题描述摘要', async () => {
+    const wrapper = await mountDetail(BUG_BASE, { drawerMode: true })
+
+    expect(wrapper.find('.bug-detail__drawer-overview').exists()).toBe(true)
+    expect(wrapper.text()).toContain(BUG_BASE.bugNo)
+    expect(wrapper.text()).toContain(BUG_BASE.title)
+    expect(wrapper.find('.bug-detail__description-trigger').text()).toContain('问题现象')
+    expect(wrapper.text()).toContain('最后更新于')
+  })
+
   it('待处理且当前用户是负责人时应显示开始处理', async () => {
     const wrapper = await mountDetail({ ...BUG_BASE, assigneeId: CURRENT_USER.id })
 
     expect(wrapper.text()).toContain('开始处理')
     expect(wrapper.text()).not.toContain('提交验收')
     expect(wrapper.text()).not.toContain('验收通过')
+  })
+
+  it('处理中应锁定负责人，但空间管理员仍可调整验收人', async () => {
+    const wrapper = await mountDetail({
+      ...BUG_BASE,
+      status: 'PROCESSING',
+      workspace: { ...BUG_BASE.workspace, currentUserRole: 'OWNER' },
+    })
+
+    expect(wrapper.text()).not.toContain('指派')
+    expect(wrapper.text()).toContain('修改验收人')
   })
 
   it('当前用户既不是负责人也不是验收人时不应显示状态操作', async () => {
@@ -344,11 +384,38 @@ describe('BugDetailView', () => {
     expect(wrapper.text()).toContain('评论内容不能为空')
   })
 
-  it('关闭后的 Bug 不再显示附件上传入口', async () => {
+  it('关闭后的 Bug 不再显示附件附加入口', async () => {
     const open = await mountDetail({ ...BUG_BASE, assigneeId: CURRENT_USER.id })
-    expect(open.text()).toContain('上传附件')
+    expect(open.find('.attachment-section__add').exists()).toBe(true)
 
     const closed = await mountDetail({ ...BUG_BASE, status: 'CLOSED' })
-    expect(closed.text()).not.toContain('上传附件')
+    expect(closed.find('.attachment-section__add').exists()).toBe(false)
+  })
+
+  it('附件列表默认收起，点击附件标题后才展开文件行', async () => {
+    const wrapper = await mountDetail({
+      ...BUG_BASE,
+      attachments: [
+        {
+          id: 1,
+          originalName: 'console-error.png',
+          fileSize: 199_680,
+          contentType: 'image/png',
+          uploaderId: CURRENT_USER.id,
+          createdAt: '2026-09-14T10:10:00',
+        },
+      ],
+    })
+
+    const content = wrapper.find('.attachment-section__content')
+    const contentElement = content.element as HTMLElement
+    const toggle = wrapper.find('.attachment-section__toggle')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(contentElement.style.display).toBe('none')
+
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(contentElement.style.display).not.toBe('none')
+    expect(wrapper.text()).toContain('console-error.png')
   })
 })
