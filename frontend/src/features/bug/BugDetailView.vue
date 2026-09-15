@@ -594,7 +594,7 @@ function goBack(): void {
   align-items: center;
   gap: 12px;
   margin-top: 12px;
-  color: #606266;
+  color: var(--bl-text-secondary);
   font-size: 13px;
 }
 
@@ -625,7 +625,7 @@ function goBack(): void {
 }
 
 .detail-preview__tabs button.active {
-  color: #58aaff;
+  color: var(--bl-primary-light);
 }
 
 .detail-preview__tabs button.active::after {
@@ -635,13 +635,13 @@ function goBack(): void {
   left: 12px;
   height: 2px;
   content: '';
-  background: #3998ff;
+  background: var(--bl-primary);
 }
 
 .detail-preview__tabs span {
   align-self: center;
   margin-left: auto;
-  color: #627184;
+  color: var(--bl-muted);
   font-size: 11px;
 }
 
@@ -664,7 +664,7 @@ function goBack(): void {
 }
 
 .detail-preview__body strong {
-  color: #dbe3ed;
+  color: var(--bl-text);
   font-size: 13px;
 }
 
@@ -676,9 +676,9 @@ function goBack(): void {
 
 .detail-preview__body > button {
   padding: 8px 13px;
-  color: #667587;
-  background: #1d2630;
-  border: 1px solid #303b47;
+  color: var(--bl-text-secondary);
+  background: var(--bl-control-bg);
+  border: 1px solid var(--bl-control-border);
   border-radius: 6px;
 }
 

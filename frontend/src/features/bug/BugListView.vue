@@ -309,7 +309,7 @@ function personName(user: { displayName: string } | null): string {
 
 .bug-list__page-heading h1 {
   margin: 0 0 7px;
-  color: #f2f6fb;
+  color: var(--bl-text);
   font-size: 29px;
 }
 
@@ -368,14 +368,14 @@ function personName(user: { displayName: string } | null): string {
 }
 
 .bug-list__table :deep(.el-table__row:hover > td.el-table__cell) {
-  background: #1c2630;
+  background: var(--el-table-row-hover-bg-color);
 }
 
 .bug-list__table :deep(.el-table__header-wrapper th) {
   height: 46px;
-  color: #8997a8;
+  color: var(--el-text-color-secondary);
   font-weight: 500;
-  background: #1c242d;
+  background: var(--el-table-header-bg-color);
 }
 
 .bug-list__pagination {
