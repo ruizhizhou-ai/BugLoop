@@ -412,16 +412,17 @@ function avatarText(bug: BugSummary): string {
   justify-content: center;
   gap: 9px;
   padding: 0 21px;
-  color: #e8eef6;
+  color: var(--bl-text);
   font: inherit;
   font-size: 13px;
   cursor: pointer;
-  border: 1px solid #303a46;
+  border: 1px solid var(--bl-control-border);
   border-radius: 8px;
 }
 
 .button--secondary {
-  background: linear-gradient(#1b222b, #181f27);
+  /* 邀请成员是次级操作，必须随主题切换到对应的控件背景，避免浅色主题遗留深色块。 */
+  background: var(--bl-control-bg);
 }
 
 .button--primary {
