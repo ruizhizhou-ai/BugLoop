@@ -7,6 +7,7 @@ import {
   ElForm,
   ElFormItem,
   ElInput,
+  ElPopconfirm,
   ElTable,
   ElTableColumn,
   ElTag,
@@ -17,13 +18,15 @@ import 'element-plus/es/components/dialog/style/css'
 import 'element-plus/es/components/form/style/css'
 import 'element-plus/es/components/form-item/style/css'
 import 'element-plus/es/components/input/style/css'
+import 'element-plus/es/components/popconfirm/style/css'
+import 'element-plus/es/components/popper/style/css'
 import 'element-plus/es/components/table/style/css'
 import 'element-plus/es/components/table-column/style/css'
 import 'element-plus/es/components/tag/style/css'
 
 import AppIcon from '@/shared/components/AppIcon.vue'
 import { isApiError } from '@/shared/api/types'
-import { createSystemUser, fetchSystemUsers } from './userApi'
+import { createSystemUser, disableSystemUser, enableSystemUser, fetchSystemUsers } from './userApi'
 import type { SystemUser } from './userApi'
 
 const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,64}$/
@@ -31,6 +34,7 @@ const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,64}$/
 const users = ref<SystemUser[]>([])
 const loading = ref(false)
 const submitting = ref(false)
+const togglingUserId = ref<number | null>(null)
 const dialogVisible = ref(false)
 const errorMessage = ref('')
 const successMessage = ref('')
@@ -108,6 +112,24 @@ async function handleCreateUser(): Promise<void> {
     errorMessage.value = isApiError(error) ? error.message : '创建用户失败，请稍后重试'
   } finally {
     submitting.value = false
+  }
+}
+
+/** 停用或启用普通用户，成功后用服务端返回结果就地替换列表行。 */
+async function handleToggleEnabled(user: SystemUser): Promise<void> {
+  togglingUserId.value = user.id
+  errorMessage.value = ''
+  successMessage.value = ''
+  try {
+    const updated = user.enabled ? await disableSystemUser(user.id) : await enableSystemUser(user.id)
+    users.value = users.value.map((item) => (item.id === updated.id ? updated : item))
+    successMessage.value = updated.enabled
+      ? `用户 ${updated.displayName} 已启用，可正常登录`
+      : `用户 ${updated.displayName} 已停用，将无法登录`
+  } catch (error) {
+    errorMessage.value = isApiError(error) ? error.message : '操作失败，请稍后重试'
+  } finally {
+    togglingUserId.value = null
   }
 }
 
@@ -201,12 +223,38 @@ function formatDateTime(value: string): string {
         <el-table-column label="账号状态" width="120">
           <template #default="{ row }">
             <el-tag :type="row.enabled ? 'success' : 'info'" size="small">
-              {{ row.enabled ? '已启用' : '已禁用' }}
+              {{ row.enabled ? '已启用' : '已停用' }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="创建时间" min-width="170">
           <template #default="{ row }">{{ formatDateTime(row.createdAt) }}</template>
+        </el-table-column>
+        <el-table-column label="操作" width="110">
+          <template #default="{ row }">
+            <el-popconfirm
+              v-if="row.systemRole === 'USER' && row.enabled"
+              title="停用后该账号将无法登录，确认继续吗？"
+              confirm-button-text="确认停用"
+              cancel-button-text="取消"
+              width="240"
+              @confirm="handleToggleEnabled(row as SystemUser)"
+            >
+              <template #reference>
+                <el-button link type="danger" :loading="togglingUserId === row.id">停用</el-button>
+              </template>
+            </el-popconfirm>
+            <el-button
+              v-else-if="row.systemRole === 'USER'"
+              link
+              type="primary"
+              :loading="togglingUserId === row.id"
+              @click="handleToggleEnabled(row as SystemUser)"
+            >
+              启用
+            </el-button>
+            <span v-else class="row-hint">—</span>
+          </template>
         </el-table-column>
       </el-table>
     </section>
@@ -413,6 +461,11 @@ function formatDateTime(value: string): string {
 .user-identity small {
   color: var(--bl-muted);
   font-size: 11px;
+}
+
+.row-hint {
+  color: var(--bl-muted);
+  font-size: 12px;
 }
 
 .dialog-hint {

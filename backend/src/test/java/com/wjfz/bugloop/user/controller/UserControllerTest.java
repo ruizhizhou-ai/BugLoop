@@ -119,6 +119,84 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.code").value(40001));
     }
 
+    @Test
+    void 停用普通用户后禁止登录且在线会话立即失效() throws Exception {
+        Session systemAdmin = register("system_admin");
+        Session target = register("target_user");
+
+        mockMvc.perform(post("/api/users/{id}/disable", target.userId())
+                        .header("Authorization", bearer(systemAdmin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.enabled").value(false));
+
+        // 停用必须同时终止在用会话，否则旧 Token 仍能继续访问。
+        mockMvc.perform(get("/api/users/me").header("Authorization", bearer(target.token())))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value(40101));
+
+        login("target_user")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(40305));
+
+        mockMvc.perform(post("/api/users/{id}/enable", target.userId())
+                        .header("Authorization", bearer(systemAdmin.token())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.enabled").value(true));
+
+        // 重新启用后原密码即可登录。
+        login("target_user").andExpect(status().isOk());
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT enabled FROM sys_user WHERE username = 'target_user'", Boolean.class)).isTrue();
+    }
+
+    @Test
+    void 停用启用应遵守权限与状态边界() throws Exception {
+        Session systemAdmin = register("system_admin");
+        Session ordinaryUser = register("ordinary_user");
+        Session target = register("target_user");
+
+        mockMvc.perform(post("/api/users/{id}/disable", target.userId())
+                        .header("Authorization", bearer(ordinaryUser.token())))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(40301));
+
+        // SYSTEM_ADMIN 账号（包括自己）不在停用范围内。
+        mockMvc.perform(post("/api/users/{id}/disable", systemAdmin.userId())
+                        .header("Authorization", bearer(systemAdmin.token())))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(40001));
+
+        mockMvc.perform(post("/api/users/{id}/disable", 999999999999L)
+                        .header("Authorization", bearer(systemAdmin.token())))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(40401));
+
+        mockMvc.perform(post("/api/users/{id}/disable", target.userId())
+                        .header("Authorization", bearer(systemAdmin.token())))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/users/{id}/disable", target.userId())
+                        .header("Authorization", bearer(systemAdmin.token())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(40901));
+
+        mockMvc.perform(post("/api/users/{id}/enable", target.userId())
+                        .header("Authorization", bearer(systemAdmin.token())))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/users/{id}/enable", target.userId())
+                        .header("Authorization", bearer(systemAdmin.token())))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(40901));
+    }
+
+    /** 以初始密码登录指定账号，用于验证停用与启用对登录能力的影响。 */
+    private org.springframework.test.web.servlet.ResultActions login(String username) throws Exception {
+        return mockMvc.perform(post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                        {"username":"%s","password":"bugloop123"}
+                        """.formatted(username)));
+    }
+
     /** 注册测试账号并保留用户主键和真实 Token。 */
     private Session register(String username) throws Exception {
         MvcResult result = mockMvc.perform(post("/api/auth/register")

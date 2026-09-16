@@ -94,6 +94,17 @@ public class UserService {
     }
 
     /**
+     * 更新用户资料，当前用于启用 / 停用账号，调用方负责完成权限校验。
+     *
+     * @param user 待更新的用户实体
+     * @return 更新后的用户
+     */
+    public User update(User user) {
+        userMapper.updateById(user);
+        return user;
+    }
+
+    /**
      * 新增用户，由调用方负责完成校验与密码哈希。
      *
      * @param user 待保存用户

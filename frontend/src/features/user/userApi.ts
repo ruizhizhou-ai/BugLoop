@@ -27,3 +27,13 @@ export function fetchSystemUsers(): Promise<SystemUser[]> {
 export function createSystemUser(payload: CreateSystemUserPayload): Promise<SystemUser> {
   return http.post<unknown, SystemUser>('/users', payload)
 }
+
+/** 停用普通用户账号；停用后该账号无法登录，在线会话由服务端立即失效。 */
+export function disableSystemUser(userId: number): Promise<SystemUser> {
+  return http.post<unknown, SystemUser>(`/users/${userId}/disable`)
+}
+
+/** 重新启用普通用户账号，恢复登录能力。 */
+export function enableSystemUser(userId: number): Promise<SystemUser> {
+  return http.post<unknown, SystemUser>(`/users/${userId}/enable`)
+}

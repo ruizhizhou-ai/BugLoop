@@ -14,6 +14,7 @@ import com.wjfz.bugloop.user.vo.UserVO;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -68,5 +69,27 @@ public class UserController {
     @PostMapping
     public ApiResponse<UserVO> createUser(@Valid @RequestBody CreateUserRequest request) {
         return ApiResponse.success(systemUserService.createUser(request));
+    }
+
+    /**
+     * 停用普通用户账号，停用后无法登录且在线会话立即失效。
+     *
+     * @param userId 目标用户主键
+     * @return 更新后的用户
+     */
+    @PostMapping("/{userId}/disable")
+    public ApiResponse<UserVO> disableUser(@PathVariable Long userId) {
+        return ApiResponse.success(systemUserService.disable(userId));
+    }
+
+    /**
+     * 重新启用普通用户账号，恢复登录能力。
+     *
+     * @param userId 目标用户主键
+     * @return 更新后的用户
+     */
+    @PostMapping("/{userId}/enable")
+    public ApiResponse<UserVO> enableUser(@PathVariable Long userId) {
+        return ApiResponse.success(systemUserService.enable(userId));
     }
 }

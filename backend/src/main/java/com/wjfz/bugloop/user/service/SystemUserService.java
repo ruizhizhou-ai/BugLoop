@@ -55,6 +55,55 @@ public class SystemUserService {
                 request.username(), request.displayName(), request.password(), STANDARD_USER));
     }
 
+    /**
+     * 停用普通用户账号，并立即失效其在线会话。
+     * 停用范围限定为 USER 账号：SYSTEM_ADMIN（含自己）不在此列，避免把平台管理能力锁死。
+     *
+     * @param userId 目标用户主键
+     * @return 更新后的用户
+     */
+    @Transactional
+    public UserVO disable(Long userId) {
+        requireSystemAdmin();
+        User target = requireStandardUser(userId);
+        if (!Boolean.TRUE.equals(target.getEnabled())) {
+            throw new BusinessException(HttpStatus.CONFLICT, 40901, "用户已停用，无需重复停用");
+        }
+        target.setEnabled(false);
+        userService.update(target);
+        // 只改数据库会让在线用户继续用旧 Token 访问接口，停用必须同时踢掉全部会话。
+        StpUtil.kickout(target.getId());
+        return UserVO.from(target);
+    }
+
+    /**
+     * 重新启用普通用户账号，恢复登录能力，密码保持不变。
+     *
+     * @param userId 目标用户主键
+     * @return 更新后的用户
+     */
+    @Transactional
+    public UserVO enable(Long userId) {
+        requireSystemAdmin();
+        User target = requireStandardUser(userId);
+        if (Boolean.TRUE.equals(target.getEnabled())) {
+            throw new BusinessException(HttpStatus.CONFLICT, 40901, "用户已启用，无需重复启用");
+        }
+        target.setEnabled(true);
+        userService.update(target);
+        return UserVO.from(target);
+    }
+
+    /** 读取普通用户账号；系统管理员不在启停管理范围内，统一返回参数错误。 */
+    private User requireStandardUser(Long userId) {
+        User user = userService.findById(userId)
+                .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, 40401, "用户不存在"));
+        if (!STANDARD_USER.equals(user.getSystemRole())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "只能停用或启用普通用户账号");
+        }
+        return user;
+    }
+
     /** 校验当前会话对应启用的系统管理员，防止仅靠前端隐藏入口造成越权。 */
     private User requireSystemAdmin() {
         Long userId = StpUtil.getLoginIdAsLong();
