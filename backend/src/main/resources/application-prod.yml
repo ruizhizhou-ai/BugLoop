@@ -9,3 +9,6 @@ spring:
     # 所有生产迁移统一存放在该目录。
     locations: classpath:db/migration
     encoding: UTF-8
+    # V5 在 V6/V7 已执行后才补入仓库，旧数据库缺少该版本；
+    # 允许乱序执行以便把 V5 的注释迁移补齐，新库仍按版本号顺序执行。
+    out-of-order: true

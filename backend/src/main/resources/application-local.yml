@@ -9,3 +9,6 @@ spring:
     # 所有生产迁移统一存放在该目录；V5 通过 MySQL 可执行注释兼容 H2 测试库。
     locations: classpath:db/migration
     encoding: UTF-8
+    # V5 在 V6/V7 已执行后才补入仓库，本机旧数据库缺少该版本；
+    # 允许乱序执行以便补上 V5 的注释迁移，新库仍按版本号顺序执行。
+    out-of-order: true
