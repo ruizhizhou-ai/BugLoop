@@ -14,9 +14,11 @@ import java.time.LocalDateTime;
  * @param username 登录用户名
  * @param displayName 展示名称
  * @param systemRole 系统角色，取值为 SYSTEM_ADMIN 或 USER
+ * @param enabled 是否启用
  * @param createdAt 注册时间
  */
-public record UserVO(Long id, String username, String displayName, String systemRole, LocalDateTime createdAt) {
+public record UserVO(Long id, String username, String displayName, String systemRole,
+                     Boolean enabled, LocalDateTime createdAt) {
 
     /**
      * 由实体转换为响应对象。
@@ -26,6 +28,6 @@ public record UserVO(Long id, String username, String displayName, String system
      */
     public static UserVO from(User user) {
         return new UserVO(user.getId(), user.getUsername(), user.getDisplayName(), user.getSystemRole(),
-                user.getCreatedAt());
+                user.getEnabled(), user.getCreatedAt());
     }
 }

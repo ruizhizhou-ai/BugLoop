@@ -193,9 +193,54 @@ Response data：
   "username": "zhangsan",
   "displayName": "张三",
   "systemRole": "SYSTEM_ADMIN",
+  "enabled": true,
   "createdAt": "2026-09-14T10:00:00"
 }
 ```
+
+### 46A.5 查询系统用户
+
+```Plain
+GET /api/users
+```
+
+权限：仅 `SYSTEM_ADMIN`。返回全部系统账号，按创建时间倒序排列，不返回密码哈希。
+
+Response data：
+
+```Json
+[
+  {
+    "id": 1001,
+    "username": "zhangsan",
+    "displayName": "张三",
+    "systemRole": "SYSTEM_ADMIN",
+    "enabled": true,
+    "createdAt": "2026-09-14T10:00:00"
+  }
+]
+```
+
+### 46A.6 系统管理员创建用户
+
+```Plain
+POST /api/users
+```
+
+权限：仅 `SYSTEM_ADMIN`。
+
+Request：
+
+```Json
+{
+  "username": "lisi",
+  "displayName": "李四",
+  "password": "initial-password"
+}
+```
+
+成功后创建一个立即启用的 `USER` 账号，不触发首用户管理员引导，也不改变当前管理员会话。
+用户名重复返回 `40905`；参数不合法返回 `40001`；非系统管理员返回 `40301`。
 
 ---
 

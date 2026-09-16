@@ -88,6 +88,12 @@ const router = createRouter({
           component: () => import('@/features/workspace/WorkspaceSettingsView.vue'),
         },
         {
+          path: 'system/users',
+          name: 'system-users',
+          component: () => import('@/features/user/SystemUsersView.vue'),
+          meta: { requiresSystemAdmin: true },
+        },
+        {
           path: 'bugs/new',
           name: 'bug-create',
           component: () => import('@/features/bug/BugCreateView.vue'),
@@ -135,6 +141,11 @@ router.beforeEach(async (to) => {
       auth.resetSession()
       return { name: 'login' }
     }
+  }
+
+  // 系统管理页面只对 SYSTEM_ADMIN 开放；前端守卫用于体验，后端接口仍执行最终鉴权。
+  if (to.meta.requiresSystemAdmin && auth.user?.systemRole !== 'SYSTEM_ADMIN') {
+    return { name: 'home' }
   }
 
   if (to.name === 'workspace-picker') {

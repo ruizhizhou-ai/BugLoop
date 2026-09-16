@@ -62,6 +62,16 @@ public class UserService {
     }
 
     /**
+     * 查询全部系统用户，供系统管理员管理页面展示。
+     *
+     * @return 按创建时间倒序排列的用户列表
+     */
+    public List<User> findAll() {
+        return userMapper.selectList(Wrappers.<User>lambdaQuery()
+                .orderByDesc(User::getCreatedAt, User::getId));
+    }
+
+    /**
      * 查询可添加到指定工作空间的启用用户，支持按用户名或显示名称模糊匹配。
      *
      * @param workspaceId 工作空间主键

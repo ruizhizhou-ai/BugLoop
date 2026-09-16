@@ -11,9 +11,9 @@ import com.wjfz.bugloop.auth.vo.LoginResponse;
 import com.wjfz.bugloop.common.exception.BusinessException;
 import com.wjfz.bugloop.config.AdminBootstrapProperties;
 import com.wjfz.bugloop.user.entity.User;
+import com.wjfz.bugloop.user.service.UserAccountService;
 import com.wjfz.bugloop.user.service.UserService;
 import com.wjfz.bugloop.user.vo.UserVO;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,10 +28,13 @@ public class AuthService {
     private static final String ROLE_USER = "USER";
 
     private final UserService userService;
+    private final UserAccountService accountService;
     private final AdminBootstrapProperties adminBootstrapProperties;
 
-    public AuthService(UserService userService, AdminBootstrapProperties adminBootstrapProperties) {
+    public AuthService(UserService userService, UserAccountService accountService,
+                       AdminBootstrapProperties adminBootstrapProperties) {
         this.userService = userService;
+        this.accountService = accountService;
         this.adminBootstrapProperties = adminBootstrapProperties;
     }
 
@@ -43,18 +46,8 @@ public class AuthService {
      */
     @Transactional
     public LoginResponse register(RegisterRequest request) {
-        User user = new User();
-        user.setUsername(request.username());
-        user.setDisplayName(request.displayName());
-        user.setPasswordHash(BCrypt.hashpw(request.password()));
-        user.setSystemRole(resolveRegisterRole());
-        user.setEnabled(true);
-
-        try {
-            userService.save(user);
-        } catch (DuplicateKeyException exception) {
-            throw new BusinessException(HttpStatus.CONFLICT, 40905, "用户名已存在");
-        }
+        User user = accountService.create(
+                request.username(), request.displayName(), request.password(), resolveRegisterRole());
 
         StpUtil.login(user.getId());
         return new LoginResponse(StpUtil.getTokenValue(), UserVO.from(user));

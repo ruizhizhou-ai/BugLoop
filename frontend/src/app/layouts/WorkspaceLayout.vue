@@ -57,6 +57,11 @@ const manageNavigation: NavigationItem[] = [
   { label: '空间设置', icon: 'settings', routeName: 'workspace-settings' },
 ]
 
+const visibleManageNavigation = computed<NavigationItem[]>(() => {
+  if (auth.user?.systemRole !== 'SYSTEM_ADMIN') return manageNavigation
+  return [...manageNavigation, { label: '用户管理', icon: 'users', routeName: 'system-users' }]
+})
+
 onMounted(() => {
   if (workspaceStore.workspaces.length === 0) {
     void loadWorkspaces()
@@ -185,7 +190,7 @@ async function handleLogout(): Promise<void> {
         <div class="sidebar-nav__divider" />
 
         <button
-          v-for="item in manageNavigation"
+          v-for="item in visibleManageNavigation"
           :key="item.routeName"
           type="button"
           class="sidebar-nav__item"
