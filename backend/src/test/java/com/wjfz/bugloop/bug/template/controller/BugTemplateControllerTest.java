@@ -111,6 +111,50 @@ class BugTemplateControllerTest {
     }
 
     /**
+     * 验证来源 Bug 的保存权限，以及模板只复制明确允许的字段而不携带处理历史。
+     */
+    @Test
+    void 保存Bug为模板应校验来源权限且只保留模板字段() throws Exception {
+        long sourceBugId = createBug(userB);
+
+        // 普通成员不能将他人创建的 Bug 保存为模板。
+        fail(userA, post("/api/bugs/{bugId}/save-as-template", sourceBugId)
+                .content(saveAsTemplateRequest("普通成员越权模板")), 403, 40301);
+
+        // 将 A 提升为空间管理员后，其可保存当前空间内 B 创建的 Bug，但模板仍归 A 个人所有。
+        jdbc.update("UPDATE workspace_member SET role = 'ADMIN' WHERE workspace_id = ? AND user_id = ?",
+                primaryWorkspaceId, userA.id());
+        ResultActions managerResult = ok(userA, post("/api/bugs/{bugId}/save-as-template", sourceBugId)
+                .content(saveAsTemplateRequest("管理员保存模板")));
+        long managerTemplateId = number(managerResult, "$.data.id");
+        managerResult.andExpect(jsonPath("$.data.workspaceId").value(primaryWorkspaceId))
+                .andExpect(jsonPath("$.data.creatorId").value(userA.id()))
+                .andExpect(jsonPath("$.data.sourceBugId").value(sourceBugId))
+                .andExpect(jsonPath("$.data.name").value("管理员保存模板"))
+                .andExpect(jsonPath("$.data.title").value("模板专用标题"))
+                .andExpect(jsonPath("$.data.descriptionMd").value("# 模板专用描述"))
+                .andExpect(jsonPath("$.data.priority").value("P1"))
+                // 模板响应不能包含来源 Bug 的负责人、验收人、状态和附件等历史业务字段。
+                .andExpect(jsonPath("$.data.assigneeId").doesNotExist())
+                .andExpect(jsonPath("$.data.acceptorId").doesNotExist())
+                .andExpect(jsonPath("$.data.status").doesNotExist())
+                .andExpect(jsonPath("$.data.attachments").doesNotExist())
+                .andExpect(jsonPath("$.data.comments").doesNotExist())
+                .andExpect(jsonPath("$.data.operationLogs").doesNotExist())
+                .andExpect(jsonPath("$.data.acceptanceRecords").doesNotExist());
+        assertThat(jdbc.queryForObject("SELECT source_bug_id FROM bug_template WHERE id = ?", Long.class,
+                managerTemplateId)).isEqualTo(sourceBugId);
+
+        // SYSTEM_ADMIN 同样可保存当前空间内的 Bug，但新模板归管理员自己，不能写入 B 的个人模板列表。
+        ResultActions systemAdminResult = ok(admin, post("/api/bugs/{bugId}/save-as-template", sourceBugId)
+                .content(saveAsTemplateRequest("系统管理员保存模板")));
+        systemAdminResult.andExpect(jsonPath("$.data.creatorId").value(admin.id()))
+                .andExpect(jsonPath("$.data.sourceBugId").value(sourceBugId));
+        ok(userB, get("/api/workspaces/{workspaceId}/bug-templates", primaryWorkspaceId))
+                .andExpect(jsonPath("$.data").isEmpty());
+    }
+
+    /**
      * 注册测试账号并保留真实认证 Token，确保接口测试经过登录拦截器。
      *
      * @param username 测试用户名
@@ -162,6 +206,30 @@ class BugTemplateControllerTest {
                 .formatted(name, title);
         return number(ok(creator, post("/api/workspaces/{workspaceId}/bug-templates", workspaceId)
                 .content(body)), "$.data.id");
+    }
+
+    /**
+     * 创建一个带负责人和验收人的来源 Bug，验证这些业务字段不会被保存到模板中。
+     *
+     * @param creator 来源 Bug 创建人
+     * @return 新建来源 Bug 主键
+     */
+    private long createBug(Session creator) throws Exception {
+        String body = "{\"title\":\"来源 Bug 标题\",\"descriptionMd\":\"# 来源 Bug 描述\",\"priority\":\"P3\","
+                + "\"assigneeId\":%d,\"acceptorId\":%d}".formatted(userA.id(), creator.id());
+        return number(ok(creator, post("/api/workspaces/{workspaceId}/bugs", primaryWorkspaceId)
+                .content(body)), "$.data.id");
+    }
+
+    /**
+     * 构造从 Bug 保存模板的请求，字段与来源 Bug 有意不同以验证服务只保存请求白名单。
+     *
+     * @param name 模板名称
+     * @return JSON 请求体
+     */
+    private String saveAsTemplateRequest(String name) {
+        return "{\"name\":\"%s\",\"title\":\"模板专用标题\",\"descriptionMd\":\"# 模板专用描述\",\"priority\":\"P1\"}"
+                .formatted(name);
     }
 
     /**

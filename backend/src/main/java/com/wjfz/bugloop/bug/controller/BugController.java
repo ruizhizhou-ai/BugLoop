@@ -6,6 +6,8 @@ package com.wjfz.bugloop.bug.controller;
 
 import com.wjfz.bugloop.bug.dto.*;
 import com.wjfz.bugloop.bug.service.BugService;
+import com.wjfz.bugloop.bug.template.dto.SaveBugAsTemplateRequest;
+import com.wjfz.bugloop.bug.template.vo.BugTemplateVO;
 import com.wjfz.bugloop.bug.vo.*;
 import com.wjfz.bugloop.common.api.*;
 import jakarta.validation.Valid;
@@ -39,6 +41,20 @@ public class BugController {
     @GetMapping("/bugs/{bugId}")
     public ApiResponse<BugDetailVO> get(@PathVariable Long bugId) {
         return ApiResponse.success(service.get(bugId));
+    }
+
+    /**
+     * 将当前用户有权限操作的 Bug 保存为个人模板；模板只保留请求明确给出的基础字段。
+     *
+     * @param bugId 来源 Bug 主键
+     * @param request 模板名称、标题、Markdown 描述和默认优先级
+     * @return 新建个人模板
+     */
+    @PostMapping("/bugs/{bugId}/save-as-template")
+    public ApiResponse<BugTemplateVO> saveAsTemplate(
+            @PathVariable Long bugId,
+            @Valid @RequestBody SaveBugAsTemplateRequest request) {
+        return ApiResponse.success(service.saveAsTemplate(bugId, request));
     }
 
     /** 使用客户端读取的 version 更新标题、描述和优先级，返回新详情。 */

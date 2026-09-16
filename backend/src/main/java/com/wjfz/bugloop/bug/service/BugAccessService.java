@@ -1,6 +1,6 @@
 /**
- * 本文件在工作空间授权之上实现 Bug 的字段编辑、有效成员和责任人约束。
- * 管理身份只用于基础信息及人员调整，处理和验收始终要求本人是指定责任人。
+ * 本文件在工作空间授权之上实现 Bug 的字段编辑、保存模板、有效成员和责任人约束。
+ * 管理身份可用于基础信息、保存模板及人员调整，处理和验收始终要求本人是指定责任人。
  */
 package com.wjfz.bugloop.bug.service;
 
@@ -56,6 +56,19 @@ public class BugAccessService {
     public void requireEditor(Bug bug, WorkspaceAccess access) {
         if (!isManager(access) && !Objects.equals(bug.getCreatorId(), access.currentUser().getId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, 40301, "只能修改自己创建的 Bug");
+        }
+    }
+
+    /**
+     * 校验能否将指定 Bug 保存为个人模板：普通成员只能保存自己创建的 Bug，
+     * 系统管理员和空间管理员可以保存当前工作空间内的 Bug，但新模板仍只归当前操作者所有。
+     *
+     * @param bug 模板来源 Bug
+     * @param access 已校验的工作空间访问上下文
+     */
+    public void requireCanSaveAsTemplate(Bug bug, WorkspaceAccess access) {
+        if (!isManager(access) && !Objects.equals(bug.getCreatorId(), access.currentUser().getId())) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, 40301, "只能将自己创建的 Bug 保存为模板");
         }
     }
 

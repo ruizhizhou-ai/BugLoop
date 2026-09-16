@@ -1,5 +1,5 @@
 /**
- * 本文件实现 Bug API 第 48 节的查询、编辑、人员指派与处理验收闭环。
+ * 本文件实现 Bug API 第 48 节的查询、编辑、保存个人模板、人员指派与处理验收闭环。
  * 每次写入先按“工作空间 → Bug”顺序校验和读取，再使用版本条件更新；历史、验收和审计共用事务。
  */
 package com.wjfz.bugloop.bug.service;
@@ -9,6 +9,9 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wjfz.bugloop.bug.dto.*;
 import com.wjfz.bugloop.bug.entity.*;
 import com.wjfz.bugloop.bug.mapper.*;
+import com.wjfz.bugloop.bug.template.dto.SaveBugAsTemplateRequest;
+import com.wjfz.bugloop.bug.template.service.BugTemplateService;
+import com.wjfz.bugloop.bug.template.vo.BugTemplateVO;
 import com.wjfz.bugloop.bug.vo.*;
 import com.wjfz.bugloop.common.api.PageResponse;
 import com.wjfz.bugloop.common.exception.BusinessException;
@@ -35,15 +38,17 @@ public class BugService {
     private final BugAccessService permissions;
     private final WorkspaceAccessService workspaces;
     private final UserService users;
+    private final BugTemplateService templates;
 
     /** 注入持久化、审计、空间授权和用户服务。 */
     public BugService(BugMapper bugs, BugAuditMapper audit, BugAccessService permissions,
-                      WorkspaceAccessService workspaces, UserService users) {
+                      WorkspaceAccessService workspaces, UserService users, BugTemplateService templates) {
         this.bugs = bugs;
         this.audit = audit;
         this.permissions = permissions;
         this.workspaces = workspaces;
         this.users = users;
+        this.templates = templates;
     }
 
     /**
@@ -144,6 +149,31 @@ public class BugService {
     public BugDetailVO get(Long bugId) {
         Bug bug = requireBug(bugId);
         return detail(bug, workspaces.requireReadable(bug.getWorkspaceId()));
+    }
+
+    /**
+     * 将当前空间中的 Bug 保存为当前操作者的个人模板。
+     * 普通成员只能保存自己创建的 Bug；系统管理员和空间管理员可保存当前空间任意 Bug，
+     * 但始终只复制模板字段白名单，并把新模板归属到当前操作者。
+     *
+     * @param bugId 来源 Bug 主键
+     * @param request 模板名称及允许保存的基础字段
+     * @return 新建个人模板
+     */
+    @Transactional
+    public BugTemplateVO saveAsTemplate(Long bugId, SaveBugAsTemplateRequest request) {
+        Bug reference = requireBug(bugId);
+        WorkspaceAccess access = workspaces.requireWritableMemberForUpdate(reference.getWorkspaceId());
+        // 取得空间写锁后重新读取 Bug，避免等待锁期间保存到已变化或已删除的来源快照。
+        Bug sourceBug = bugs.selectByIdForUpdate(bugId);
+        if (sourceBug == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, 40403, "Bug 不存在");
+        }
+        if (!Objects.equals(sourceBug.getWorkspaceId(), access.workspace().getId())) {
+            throw versionConflict();
+        }
+        permissions.requireCanSaveAsTemplate(sourceBug, access);
+        return templates.createFromBug(sourceBug, access.currentUser().getId(), request);
     }
 
     /**

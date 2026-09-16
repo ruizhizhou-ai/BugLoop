@@ -6,7 +6,9 @@ package com.wjfz.bugloop.bug.template.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wjfz.bugloop.bug.template.dto.CreateBugTemplateRequest;
+import com.wjfz.bugloop.bug.template.dto.SaveBugAsTemplateRequest;
 import com.wjfz.bugloop.bug.template.dto.UpdateBugTemplateRequest;
+import com.wjfz.bugloop.bug.entity.Bug;
 import com.wjfz.bugloop.bug.template.entity.BugTemplate;
 import com.wjfz.bugloop.bug.template.mapper.BugTemplateMapper;
 import com.wjfz.bugloop.bug.template.vo.BugTemplateVO;
@@ -79,6 +81,31 @@ public class BugTemplateService {
         // Markdown 原文需保持用户书写的换行和缩进，不能像标题一样统一 trim。
         template.setDescriptionMd(request.descriptionMd());
         template.setPriority(request.priority());
+        template.setSortOrder(0);
+        templates.insert(template);
+        return BugTemplateVO.from(template);
+    }
+
+    /**
+     * 从已完成权限校验的 Bug 创建当前操作者的个人模板。
+     * 仅显式写入请求中的标题、Markdown 描述和优先级，以及来源 Bug 标识；
+     * 负责人、验收人、状态、附件和各类历史记录不会参与模板构造。
+     *
+     * @param sourceBug 已确认属于当前工作空间的来源 Bug
+     * @param creatorId 当前操作者用户 ID，也是新个人模板的唯一创建人
+     * @param request 模板名称及允许保存的基础字段
+     * @return 已持久化的个人模板
+     */
+    public BugTemplateVO createFromBug(Bug sourceBug, Long creatorId, SaveBugAsTemplateRequest request) {
+        BugTemplate template = new BugTemplate();
+        template.setWorkspaceId(sourceBug.getWorkspaceId());
+        template.setCreatorId(creatorId);
+        template.setName(request.name().trim());
+        // 使用请求中的内容而非整实体复制，确保模板字段白名单不会随着 Bug 字段增加而失效。
+        template.setTitle(request.title().trim());
+        template.setDescriptionMd(request.descriptionMd());
+        template.setPriority(request.priority());
+        template.setSourceBugId(sourceBug.getId());
         template.setSortOrder(0);
         templates.insert(template);
         return BugTemplateVO.from(template);
