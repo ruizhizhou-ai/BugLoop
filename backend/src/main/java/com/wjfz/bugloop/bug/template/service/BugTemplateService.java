@@ -9,6 +9,7 @@ import com.wjfz.bugloop.bug.template.dto.CreateBugTemplateRequest;
 import com.wjfz.bugloop.bug.template.dto.SaveBugAsTemplateRequest;
 import com.wjfz.bugloop.bug.template.dto.UpdateBugTemplateRequest;
 import com.wjfz.bugloop.bug.entity.Bug;
+import com.wjfz.bugloop.bug.mapper.BugMapper;
 import com.wjfz.bugloop.bug.template.entity.BugTemplate;
 import com.wjfz.bugloop.bug.template.mapper.BugTemplateMapper;
 import com.wjfz.bugloop.bug.template.vo.BugTemplateVO;
@@ -20,7 +21,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Bug 个人模板业务服务，集中保证模板始终只能被其创建人读取和管理。
@@ -29,16 +32,19 @@ import java.util.Objects;
 public class BugTemplateService {
 
     private final BugTemplateMapper templates;
+    private final BugMapper bugs;
     private final WorkspaceAccessService workspaces;
 
     /**
-     * 注入模板持久化入口和工作空间访问校验服务。
+     * 注入模板持久化入口、来源 Bug 查询入口和工作空间访问校验服务。
      *
      * @param templates 模板 Mapper
+     * @param bugs Bug Mapper，只用于把来源 Bug 编号带给列表展示
      * @param workspaces 工作空间访问服务
      */
-    public BugTemplateService(BugTemplateMapper templates, WorkspaceAccessService workspaces) {
+    public BugTemplateService(BugTemplateMapper templates, BugMapper bugs, WorkspaceAccessService workspaces) {
         this.templates = templates;
+        this.bugs = bugs;
         this.workspaces = workspaces;
     }
 
@@ -51,16 +57,29 @@ public class BugTemplateService {
     @Transactional(readOnly = true)
     public List<BugTemplateVO> list(Long workspaceId) {
         WorkspaceAccess access = workspaces.requireReadable(workspaceId);
-        return templates.selectList(Wrappers.<BugTemplate>lambdaQuery()
-                        // 必须同时限定空间与创建人，不能因管理员身份放宽个人模板边界。
-                        .eq(BugTemplate::getWorkspaceId, workspaceId)
-                        .eq(BugTemplate::getCreatorId, access.currentUser().getId())
-                        .orderByAsc(BugTemplate::getSortOrder)
-                        .orderByDesc(BugTemplate::getUpdatedAt)
-                        .orderByDesc(BugTemplate::getId))
-                .stream()
-                .map(BugTemplateVO::from)
+        List<BugTemplate> records = templates.selectList(Wrappers.<BugTemplate>lambdaQuery()
+                // 必须同时限定空间与创建人，不能因管理员身份放宽个人模板边界。
+                .eq(BugTemplate::getWorkspaceId, workspaceId)
+                .eq(BugTemplate::getCreatorId, access.currentUser().getId())
+                .orderByAsc(BugTemplate::getSortOrder)
+                .orderByDesc(BugTemplate::getUpdatedAt)
+                .orderByDesc(BugTemplate::getId));
+        Map<Long, String> sourceBugNos = sourceBugNos(records);
+        return records.stream()
+                .map(template -> toVO(template, sourceBugNos))
                 .toList();
+    }
+
+    /**
+     * 组装模板响应；手工创建的模板没有来源，不查询来源编号。
+     *
+     * @param template 模板实体
+     * @param sourceBugNos 同一批次已查出的来源编号映射
+     * @return 模板响应对象
+     */
+    private BugTemplateVO toVO(BugTemplate template, Map<Long, String> sourceBugNos) {
+        return BugTemplateVO.from(template,
+                template.getSourceBugId() == null ? null : sourceBugNos.get(template.getSourceBugId()));
     }
 
     /**
@@ -83,7 +102,7 @@ public class BugTemplateService {
         template.setPriority(request.priority());
         template.setSortOrder(0);
         templates.insert(template);
-        return BugTemplateVO.from(template);
+        return BugTemplateVO.from(template, null);
     }
 
     /**
@@ -108,7 +127,7 @@ public class BugTemplateService {
         template.setSourceBugId(sourceBug.getId());
         template.setSortOrder(0);
         templates.insert(template);
-        return BugTemplateVO.from(template);
+        return BugTemplateVO.from(template, sourceBug.getBugNo());
     }
 
     /**
@@ -127,7 +146,26 @@ public class BugTemplateService {
         template.setPriority(request.priority());
         template.setSortOrder(request.sortOrder());
         templates.updateById(template);
-        return BugTemplateVO.from(template);
+        return toVO(template, sourceBugNos(List.of(template)));
+    }
+
+    /**
+     * 批量读取模板来源 Bug 的业务编号；手工创建的模板没有来源，不参与查询。
+     *
+     * @param records 待转换的模板实体
+     * @return 来源 Bug 主键到业务编号的映射，无来源时返回空映射
+     */
+    private Map<Long, String> sourceBugNos(List<BugTemplate> records) {
+        List<Long> sourceBugIds = records.stream()
+                .map(BugTemplate::getSourceBugId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (sourceBugIds.isEmpty()) {
+            return Map.of();
+        }
+        return bugs.selectBatchIds(sourceBugIds).stream()
+                .collect(Collectors.toMap(Bug::getId, Bug::getBugNo));
     }
 
     /**

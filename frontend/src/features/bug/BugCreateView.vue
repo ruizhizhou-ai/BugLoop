@@ -29,6 +29,7 @@ import { MdEditor } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 
 import { useBugStore } from './bugStore'
+import BugTemplateManager from './BugTemplateManager.vue'
 import {
   ATTACHMENT_ACCEPT,
   BUG_PRIORITY_OPTIONS,
@@ -64,6 +65,7 @@ const pendingFiles = ref<File[]>([])
 const createdBug = ref<BugCreated | null>(null)
 const personalTemplates = ref<BugTemplateViewModel[]>([])
 const templatesLoading = ref(false)
+const templateManagerVisible = ref(false)
 // “空白”是默认项；只有确认实际应用模板后才更新 appliedTemplateKey，用于取消覆盖时回退选择状态。
 const selectedTemplateKey = ref(BLANK_TEMPLATE_KEY)
 const appliedTemplateKey = ref(BLANK_TEMPLATE_KEY)
@@ -282,8 +284,13 @@ function goBack(): void {
               <h3 id="template-heading">使用模板</h3>
               <p>模板仅会填充标题、详细说明和优先级。</p>
             </div>
-            <!-- 模板管理页将在后续任务接入，此处先保留明确入口文案而不跳转到不存在的路由。 -->
-            <span class="bug-create__templates-manage" aria-disabled="true">管理我的模板 →</span>
+            <button
+              type="button"
+              class="bug-create__templates-manage"
+              @click="templateManagerVisible = true"
+            >
+              管理我的模板 →
+            </button>
           </div>
 
           <el-radio-group
@@ -407,6 +414,12 @@ function goBack(): void {
         <el-button v-else type="primary" @click="openDetail">进入详情页</el-button>
       </el-form>
     </el-card>
+
+    <BugTemplateManager
+      v-model="templateManagerVisible"
+      :workspace-id="workspaceId"
+      @changed="loadPersonalTemplates"
+    />
   </main>
 </template>
 
@@ -458,8 +471,18 @@ function goBack(): void {
 
 .bug-create__templates-manage {
   flex: 0 0 auto;
+  padding: 0;
   color: var(--bl-muted);
+  font: inherit;
   font-size: 13px;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.bug-create__templates-manage:hover,
+.bug-create__templates-manage:focus-visible {
+  color: var(--bl-primary-light);
 }
 
 .bug-create__template-options {

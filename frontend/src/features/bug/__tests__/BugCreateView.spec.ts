@@ -8,6 +8,7 @@ import { defineComponent, h, inject, provide, type PropType } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 
 import BugCreateView from '../BugCreateView.vue'
+import { SYSTEM_BUG_TEMPLATES } from '../bugTemplates'
 import type { BugTemplate } from '../bugTemplateApi'
 
 const mocks = vi.hoisted(() => ({
@@ -20,6 +21,16 @@ const mocks = vi.hoisted(() => ({
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { workspaceId: '1' } }),
   useRouter: () => ({ push: vi.fn() }),
+}))
+
+// md-editor-v3 的组件没有可用于桩件匹配的组件名，必须在模块层替换才能稳定渲染文本域。
+vi.mock('md-editor-v3', () => ({
+  MdEditor: {
+    props: { modelValue: { type: String, required: true } },
+    emits: ['update:modelValue'],
+    template:
+      '<textarea class="markdown-stub" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+  },
 }))
 
 vi.mock('element-plus', async (importOriginal) => {
@@ -150,6 +161,7 @@ const PERSONAL_TEMPLATE: BugTemplate = {
   descriptionMd: '# 登录排查',
   priority: 'P1',
   sourceBugId: null,
+  sourceBugNo: null,
   sortOrder: 0,
   createdAt: '2026-09-16T10:00:00',
   updatedAt: '2026-09-16T10:00:00',
@@ -213,6 +225,33 @@ describe('BugCreateView', () => {
     expect((wrapper.findAll('.select-stub')[0]?.element as HTMLSelectElement).value).toBe('P1')
     expect((wrapper.findAll('.select-stub')[1]?.element as HTMLSelectElement).value).toBe('11')
     expect((wrapper.findAll('.select-stub')[2]?.element as HTMLSelectElement).value).toBe('10')
+  })
+
+  /** 验证内置模板走同一条回填路径，同样只写入标题、描述和优先级。 */
+  it('选择内置模板应回填标题、描述和优先级', async () => {
+    const systemTemplate = SYSTEM_BUG_TEMPLATES.find((template) => template.id === 'api-error')
+    expect(systemTemplate).toBeDefined()
+
+    const wrapper = await mountView()
+    const selects = wrapper.findAll('.select-stub')
+    await selects[1]?.setValue('11')
+    await selects[2]?.setValue('10')
+
+    // 表单为空时不触发覆盖确认，选中即应用内置模板。
+    await wrapper.get('[data-template-key="SYSTEM:api-error"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.confirm).not.toHaveBeenCalled()
+    expect((wrapper.get('.input-stub').element as HTMLInputElement).value).toBe(
+      systemTemplate!.title,
+    )
+    expect((wrapper.get('.markdown-stub').element as HTMLTextAreaElement).value).toBe(
+      systemTemplate!.descriptionMd,
+    )
+    expect((selects[0]!.element as HTMLSelectElement).value).toBe(systemTemplate!.priority)
+    // 负责人和验收人保持用户当前选择，不被模板改写。
+    expect((selects[1]!.element as HTMLSelectElement).value).toBe('11')
+    expect((selects[2]!.element as HTMLSelectElement).value).toBe('10')
   })
 
   /** 验证拒绝确认时保留用户手写内容，模板不会静默改写表单。 */

@@ -20,6 +20,8 @@ export interface BugTemplate {
   descriptionMd: string
   priority: BugPriority
   sourceBugId: number | null
+  /** 来源 Bug 的业务编号，手工创建或来源缺失时为空。 */
+  sourceBugNo: string | null
   sortOrder: number
   createdAt: string
   updatedAt: string
@@ -66,6 +68,7 @@ export interface BugTemplateViewModel {
   workspaceId: number | null
   creatorId: number | null
   sourceBugId: number | null
+  sourceBugNo: string | null
   sortOrder: number
   createdAt: string | null
   updatedAt: string | null
@@ -99,6 +102,7 @@ export function toSystemBugTemplateViewModel(
     workspaceId: null,
     creatorId: null,
     sourceBugId: null,
+    sourceBugNo: null,
     sortOrder: template.sortOrder ?? 0,
     createdAt: null,
     updatedAt: null,

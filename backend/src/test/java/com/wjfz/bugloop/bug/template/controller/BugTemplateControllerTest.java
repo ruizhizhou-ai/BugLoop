@@ -75,7 +75,10 @@ class BugTemplateControllerTest {
         ok(userA, get("/api/workspaces/{workspaceId}/bug-templates", primaryWorkspaceId))
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].id").value(templateA))
-                .andExpect(jsonPath("$.data[0].creatorId").value(userA.id()));
+                .andExpect(jsonPath("$.data[0].creatorId").value(userA.id()))
+                // 手工创建的模板没有来源，编号和来源主键都必须为空。
+                .andExpect(jsonPath("$.data[0].sourceBugId").doesNotExist())
+                .andExpect(jsonPath("$.data[0].sourceBugNo").doesNotExist());
         ok(userB, get("/api/workspaces/{workspaceId}/bug-templates", primaryWorkspaceId))
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].id").value(templateB));
@@ -99,6 +102,9 @@ class BugTemplateControllerTest {
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].id").value(templateB));
 
+        // 删除同样受创建人边界限制，A 不能删除 B 的个人模板。
+        fail(userA, delete("/api/bug-templates/{templateId}", templateB), 403, 40301);
+
         ok(userB, delete("/api/bug-templates/{templateId}", templateB));
         assertThat(jdbc.queryForObject("SELECT deleted FROM bug_template WHERE id = ?", Boolean.class, templateB))
                 .isTrue();
@@ -116,6 +122,7 @@ class BugTemplateControllerTest {
     @Test
     void 保存Bug为模板应校验来源权限且只保留模板字段() throws Exception {
         long sourceBugId = createBug(userB);
+        String sourceBugNo = jdbc.queryForObject("SELECT bug_no FROM bug WHERE id = ?", String.class, sourceBugId);
 
         // 普通成员不能将他人创建的 Bug 保存为模板。
         fail(userA, post("/api/bugs/{bugId}/save-as-template", sourceBugId)
@@ -130,6 +137,7 @@ class BugTemplateControllerTest {
         managerResult.andExpect(jsonPath("$.data.workspaceId").value(primaryWorkspaceId))
                 .andExpect(jsonPath("$.data.creatorId").value(userA.id()))
                 .andExpect(jsonPath("$.data.sourceBugId").value(sourceBugId))
+                .andExpect(jsonPath("$.data.sourceBugNo").value(sourceBugNo))
                 .andExpect(jsonPath("$.data.name").value("管理员保存模板"))
                 .andExpect(jsonPath("$.data.title").value("模板专用标题"))
                 .andExpect(jsonPath("$.data.descriptionMd").value("# 模板专用描述"))
@@ -149,7 +157,49 @@ class BugTemplateControllerTest {
         ResultActions systemAdminResult = ok(admin, post("/api/bugs/{bugId}/save-as-template", sourceBugId)
                 .content(saveAsTemplateRequest("系统管理员保存模板")));
         systemAdminResult.andExpect(jsonPath("$.data.creatorId").value(admin.id()))
+                .andExpect(jsonPath("$.data.sourceBugId").value(sourceBugId))
+                .andExpect(jsonPath("$.data.sourceBugNo").value(sourceBugNo));
+        ok(userB, get("/api/workspaces/{workspaceId}/bug-templates", primaryWorkspaceId))
+                .andExpect(jsonPath("$.data").isEmpty());
+
+        // 列表接口同样带出来源编号，模板管理界面据此展示“基于 BUG-xxxxxx”。
+        ok(userA, get("/api/workspaces/{workspaceId}/bug-templates", primaryWorkspaceId))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].name").value("管理员保存模板"))
+                .andExpect(jsonPath("$.data[0].sourceBugNo").value(sourceBugNo));
+
+        // 修改模板后来源编号保持不变，回归更新接口的响应字段。
+        ok(userA, put("/api/bug-templates/{templateId}", managerTemplateId)
+                .content(updateRequest("管理员保存模板（改）", "改后标题", 1)))
+                .andExpect(jsonPath("$.data.sourceBugNo").value(sourceBugNo))
                 .andExpect(jsonPath("$.data.sourceBugId").value(sourceBugId));
+    }
+
+    /**
+     * 验证创建者可以把自建 Bug 保存为模板，且删除模板只影响模板本身，来源 Bug 保持可读。
+     */
+    @Test
+    void 自建Bug可保存为模板且删除模板不影响来源Bug() throws Exception {
+        long sourceBugId = createBug(userB);
+        String sourceBugNo = jdbc.queryForObject("SELECT bug_no FROM bug WHERE id = ?", String.class, sourceBugId);
+
+        // 普通成员保存自己创建的 Bug 属于允许场景，新模板归当前操作者所有。
+        ResultActions ownResult = ok(userB, post("/api/bugs/{bugId}/save-as-template", sourceBugId)
+                .content(saveAsTemplateRequest("自建排查模板")));
+        long templateId = number(ownResult, "$.data.id");
+        ownResult.andExpect(jsonPath("$.data.creatorId").value(userB.id()))
+                .andExpect(jsonPath("$.data.sourceBugId").value(sourceBugId))
+                .andExpect(jsonPath("$.data.sourceBugNo").value(sourceBugNo));
+
+        ok(userB, delete("/api/bug-templates/{templateId}", templateId));
+        assertThat(jdbc.queryForObject("SELECT deleted FROM bug_template WHERE id = ?", Boolean.class, templateId))
+                .isTrue();
+        // 来源 Bug 与模板是两条独立记录，删除模板后 Bug 仍可正常读取。
+        ok(userB, get("/api/bugs/{bugId}", sourceBugId))
+                .andExpect(jsonPath("$.data.id").value(sourceBugId))
+                .andExpect(jsonPath("$.data.title").value("来源 Bug 标题"));
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM bug WHERE id = ?", Integer.class, sourceBugId))
+                .isEqualTo(1);
         ok(userB, get("/api/workspaces/{workspaceId}/bug-templates", primaryWorkspaceId))
                 .andExpect(jsonPath("$.data").isEmpty());
     }

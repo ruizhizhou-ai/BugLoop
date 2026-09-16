@@ -17,7 +17,7 @@ class SchemaMigrationIT extends AbstractMysqlIntegrationTest {
     private static final List<String> EXPECTED_TABLES = List.of(
             "sys_user", "workspace", "workspace_member", "bug", "bug_attachment",
             "bug_comment", "bug_operation_log", "workspace_operation_log",
-            "bug_description_history", "bug_acceptance");
+            "bug_description_history", "bug_acceptance", "bug_template");
 
     @Test
     void 迁移执行后应包含全部业务表() {
