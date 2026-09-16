@@ -145,7 +145,7 @@ function hasTemplateOverwritableContent(): boolean {
 }
 
 /**
- * 处理模板选择；空白项只取消模板选择，不清空用户已经手写的内容。
+ * 处理模板选择；切换到空白模板会清除模板填入的基础字段，负责人和验收人保持用户选择。
  *
  * @param selectedKey 当前单选组件选择的模板键；Element Plus 允许多种值类型，页面仅接受字符串键
  */
@@ -157,6 +157,24 @@ async function handleTemplateSelection(
     return
   }
   if (selectedKey === BLANK_TEMPLATE_KEY) {
+    if (hasTemplateOverwritableContent()) {
+      try {
+        // 空白模板会移除当前标题和描述，先确认以避免用户手写内容被一次点击清空。
+        await ElMessageBox.confirm('当前模板内容将被清空，是否继续？', '使用空白模板', {
+          confirmButtonText: '清空内容',
+          cancelButtonText: '取消',
+          type: 'warning',
+        })
+      } catch {
+        // 用户取消后恢复已实际应用的模板选项，表单内容与人员选择均不变。
+        selectedTemplateKey.value = appliedTemplateKey.value
+        return
+      }
+    }
+    // “空白”只重置模板可控制的基础字段，不能影响负责人和验收人。
+    form.title = ''
+    form.descriptionMd = ''
+    form.priority = 'P2'
     appliedTemplateKey.value = BLANK_TEMPLATE_KEY
     return
   }

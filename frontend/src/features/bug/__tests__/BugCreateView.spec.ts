@@ -254,6 +254,30 @@ describe('BugCreateView', () => {
     expect((selects[2]!.element as HTMLSelectElement).value).toBe('10')
   })
 
+  /** 验证从任意模板切回空白会清除基础字段，但不能改变负责人和验收人。 */
+  it('从模板切回空白应清空基础字段并保留负责人和验收人', async () => {
+    const wrapper = await mountView()
+    const selects = wrapper.findAll('.select-stub')
+    await selects[1]?.setValue('11')
+    await selects[2]?.setValue('10')
+
+    await wrapper.get('[data-template-key="SYSTEM:api-error"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-template-key="BLANK"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.confirm).toHaveBeenCalledWith(
+      '当前模板内容将被清空，是否继续？',
+      '使用空白模板',
+      expect.any(Object),
+    )
+    expect((wrapper.get('.input-stub').element as HTMLInputElement).value).toBe('')
+    expect((wrapper.get('.markdown-stub').element as HTMLTextAreaElement).value).toBe('')
+    expect((selects[0]!.element as HTMLSelectElement).value).toBe('P2')
+    expect((selects[1]!.element as HTMLSelectElement).value).toBe('11')
+    expect((selects[2]!.element as HTMLSelectElement).value).toBe('10')
+  })
+
   /** 验证拒绝确认时保留用户手写内容，模板不会静默改写表单。 */
   it('取消覆盖确认时应保留当前标题和描述', async () => {
     mocks.confirm.mockRejectedValueOnce(new Error('cancel'))
