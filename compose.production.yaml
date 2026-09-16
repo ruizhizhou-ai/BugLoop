@@ -1,4 +1,4 @@
-# 本文件用于单机 Linux 生产部署，只向宿主机暴露 Web 入口，数据库和后端仅在容器网络内通信。
+# 本文件用于单机 Linux 生产部署；后端仅在容器网络内通信，MySQL 是否对外开放由环境变量控制。
 services:
   mysql:
     image: mysql:8.0
@@ -12,6 +12,9 @@ services:
       TZ: Asia/Shanghai
     volumes:
       - mysql-data:/var/lib/mysql
+    ports:
+      # 允许运维工具从宿主机或受防火墙保护的外部网络连接 MySQL；生产环境务必限制 3306 的访问来源。
+      - "${MYSQL_BIND_ADDRESS:-0.0.0.0}:${MYSQL_EXTERNAL_PORT:-3306}:3306"
     healthcheck:
       # 后端只能在 MySQL 真正接受连接后启动，避免启动阶段迁移失败。
       test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p$${MYSQL_ROOT_PASSWORD} --silent"]

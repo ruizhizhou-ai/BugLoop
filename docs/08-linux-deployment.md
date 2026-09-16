@@ -10,10 +10,12 @@
 - Docker Engine 与 Docker Compose v2 插件。
 - 服务器能够从配置的容器镜像仓库拉取 MySQL、Maven、Eclipse Temurin、Node.js 和 Nginx 基础镜像；第三方镜像加速器失效时需切换到可用镜像源。
 - Git；若使用私有仓库，还需要服务器 SSH Key 或其他仓库凭据。
-- 防火墙开放 SSH 端口和 Web 端口。直接使用 HTTP 时开放 80；配置 HTTPS 时开放 80、443。
+- 防火墙开放 SSH 端口和 Web 端口。直接使用 HTTP 时开放 80；配置 HTTPS 时开放 80、443。若需要外部数据库客户端连接，还需仅向可信来源 IP 开放 3306。
 - 可选域名。公网或跨不可信网络使用时必须配置 HTTPS，不建议直接传输登录 Token。
 
-生产 Compose 不对外开放 MySQL 3306 和后端 8080，只开放前端 Nginx 入口。数据库存放在 `mysql-data` 命名卷，附件存放在 `attachment-data` 命名卷，容器升级不会删除数据。
+生产 Compose 默认将 MySQL 映射为宿主机 `3306`，后端 `8080` 不对外开放，前端 Nginx 映射为 Web 入口。数据库存放在 `mysql-data` 命名卷，附件存放在 `attachment-data` 命名卷，容器升级不会删除数据。
+
+如仅需服务器本机通过 MySQL 客户端运维，可在 `.env.production` 中将 `MYSQL_BIND_ADDRESS` 改为 `127.0.0.1`；如需外部连接，则保持 `0.0.0.0`，并在云安全组或服务器防火墙中只放行可信 IP，禁止向全网开放 3306。
 
 ## 二、首次直接部署
 
