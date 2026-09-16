@@ -7,8 +7,10 @@ package com.wjfz.bugloop.bug.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wjfz.bugloop.bug.dto.*;
+import com.wjfz.bugloop.bug.attachment.entity.AttachmentBizType;
 import com.wjfz.bugloop.bug.entity.*;
 import com.wjfz.bugloop.bug.mapper.*;
+import com.wjfz.bugloop.bug.markdownimage.service.MarkdownImageService;
 import com.wjfz.bugloop.bug.template.dto.SaveBugAsTemplateRequest;
 import com.wjfz.bugloop.bug.template.service.BugTemplateService;
 import com.wjfz.bugloop.bug.template.vo.BugTemplateVO;
@@ -39,16 +41,19 @@ public class BugService {
     private final WorkspaceAccessService workspaces;
     private final UserService users;
     private final BugTemplateService templates;
+    private final MarkdownImageService markdownImages;
 
     /** 注入持久化、审计、空间授权和用户服务。 */
     public BugService(BugMapper bugs, BugAuditMapper audit, BugAccessService permissions,
-                      WorkspaceAccessService workspaces, UserService users, BugTemplateService templates) {
+                      WorkspaceAccessService workspaces, UserService users, BugTemplateService templates,
+                      MarkdownImageService markdownImages) {
         this.bugs = bugs;
         this.audit = audit;
         this.permissions = permissions;
         this.workspaces = workspaces;
         this.users = users;
         this.templates = templates;
+        this.markdownImages = markdownImages;
     }
 
     /**
@@ -87,6 +92,8 @@ public class BugService {
         bugs.insert(bug);
         bug.setBugNo(String.format(Locale.ROOT, "BUG-%06d", bug.getId()));
         bugs.setBugNo(bug.getId(), bug.getBugNo());
+        // 正文仅能绑定当前用户在当前空间上传且仍有效的草稿图片，任一异常都会回滚本次创建。
+        markdownImages.bindReferencedImages(workspaceId, access.currentUser().getId(), bug.getId(), request.descriptionMd());
         log(bug, access, "CREATE_BUG", null, null, bug.getBugNo(), "创建了 " + bug.getBugNo());
         return new BugCreatedVO(bug.getId(), bug.getBugNo());
     }
@@ -417,11 +424,17 @@ public class BugService {
     /** 在已授权的空间上下文中组装详情，关联查询只使用该 Bug 主键。 */
     private BugDetailVO detail(Bug bug, WorkspaceAccess access) {
         Map<Long, User> related = relatedUsers(List.of(bug));
+        List<BugAttachmentVO> attachments = Stream.concat(
+                        audit.attachments(bug.getId()).stream(), markdownImages.boundAttachmentViews(bug.getId()).stream())
+                // 附件列表按上传时间稳定排序，避免两张表合并后页面顺序随数据库执行计划波动。
+                .sorted(Comparator.comparing(BugAttachmentVO::createdAt).thenComparing(BugAttachmentVO::id))
+                // 普通附件可按上传人与空间角色删除；正文图片仅展示和下载，不能破坏 Markdown 引用。
+                .map(attachment -> attachment.bizType() == AttachmentBizType.BUG_DESCRIPTION
+                        ? attachment : attachment.withCanDelete(canDeleteAttachment(attachment, access)))
+                .toList();
         return BugDetailVO.from(bug, WorkspaceVO.from(access.workspace(), access.currentRole()),
                 BugUserVO.from(related.get(bug.getCreatorId())), BugUserVO.from(related.get(bug.getAssigneeId())),
-                BugUserVO.from(related.get(bug.getAcceptorId())), audit.attachments(bug.getId()).stream()
-                        // 删除入口的可见性必须以服务端当前权限为准，不能依赖客户端保存的用户角色。
-                        .map(attachment -> attachment.withCanDelete(canDeleteAttachment(attachment, access))).toList(),
+                BugUserVO.from(related.get(bug.getAcceptorId())), attachments,
                 audit.latestAcceptance(bug.getId()));
     }
 

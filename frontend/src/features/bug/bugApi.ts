@@ -10,6 +10,7 @@ export type BugPriority = 'P0' | 'P1' | 'P2' | 'P3'
 export type BugStatus = 'TODO' | 'PROCESSING' | 'WAIT_ACCEPTANCE' | 'REOPENED' | 'CLOSED'
 /** 统一附件来源，与后端 AttachmentBizType 枚举保持一一对应。 */
 export type AttachmentBizType =
+  | 'BUG_DESCRIPTION'
   | 'BUG_CREATE'
   | 'BUG_PROCESS'
   | 'ACCEPT_REJECT'
@@ -80,6 +81,13 @@ export interface BugDetail extends BugSummary {
 export interface BugCreated {
   id: number
   bugNo: string
+}
+
+/** 创建 Bug 前上传的 Markdown 草稿图片；url 是正文持久化的受控相对地址。 */
+export interface BugDraftImage {
+  id: number
+  url: string
+  markdown: string
 }
 
 /** 评论、操作日志和描述历史的展示字段与后端追溯 VO 一一对应。 */
@@ -287,6 +295,13 @@ export function uploadBugAttachmentForBusiness(
     form.append('bizId', String(business.bizId))
   }
   return http.post<unknown, BugAttachment>(`/bugs/${bugId}/attachments`, form)
+}
+
+/** 上传 Markdown 正文图片；图片会在创建 Bug 成功时由后端校验并绑定。 */
+export function uploadBugDraftImage(workspaceId: number, file: File): Promise<BugDraftImage> {
+  const form = new FormData()
+  form.append('file', file)
+  return http.post<unknown, BugDraftImage>(`/workspaces/${workspaceId}/bug-draft-images`, form)
 }
 
 export function deleteBugAttachment(attachmentId: number): Promise<void> {

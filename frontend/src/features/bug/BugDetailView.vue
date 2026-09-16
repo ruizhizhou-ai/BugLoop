@@ -60,6 +60,7 @@ import { useAuthStore } from '@/features/auth/authStore'
 import { useWorkspaceStore } from '@/features/workspace/workspaceStore'
 import AppIcon from '@/shared/components/AppIcon.vue'
 import AppNotice from '@/shared/components/AppNotice.vue'
+import ProtectedMarkdownPreview from '@/shared/components/ProtectedMarkdownPreview.vue'
 import { downloadFile } from '@/shared/api/http'
 import { isApiError } from '@/shared/api/types'
 
@@ -97,6 +98,8 @@ const attachmentInput = ref<HTMLInputElement | null>(null)
 const rejectionScreenshotInput = ref<HTMLInputElement | null>(null)
 const rejectionScreenshot = ref<File | null>(null)
 const attachmentsExpanded = ref(false)
+// 问题描述默认收起，避免较长 Markdown 正文掩盖 Bug 标题和操作入口。
+const descriptionExpanded = ref(false)
 // 历史记录默认收起，避免详情抽屉被长评论、验收与日志一次性撑满。
 const acceptancesExpanded = ref(false)
 const traceExpanded = ref(false)
@@ -106,6 +109,7 @@ const imagePreviewUrl = ref('')
 const imagePreviewName = ref('')
 
 const ATTACHMENT_GROUP_META: Record<AttachmentBizType, { label: string; source: string }> = {
+  BUG_DESCRIPTION: { label: '问题描述图片', source: '问题描述' },
   BUG_CREATE: { label: '提单附件', source: 'Bug 提交' },
   BUG_PROCESS: { label: '处理附件', source: '处理过程' },
   ACCEPT_REJECT: { label: '验收驳回附件', source: '验收驳回' },
@@ -123,19 +127,6 @@ const resolvedBugId = computed(() => props.bugId ?? Number(route.params.bugId))
 const workspaceId = computed(() => Number(route.params.workspaceId))
 // 切换抽屉中的 Bug 时不展示上一个详情，等待新请求返回后再渲染。
 const bug = computed(() => (bugStore.current?.id === resolvedBugId.value ? bugStore.current : null))
-/**
- * 将 Markdown 压缩为抽屉头部可扫读的一行摘要；完整内容仍在下方的问题描述区展示。
- */
-const descriptionSummary = computed(() => {
-  const markdown = bug.value?.descriptionMd?.trim()
-  if (!markdown) return ''
-
-  return markdown
-    .replace(/^#{1,6}\s*/gm, '')
-    .replace(/[>*_`~]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-})
 
 const currentUserId = computed(() => auth.user?.id)
 const isAssignee = computed(() => bug.value?.assigneeId === currentUserId.value)
@@ -210,6 +201,7 @@ watch(
     errorMessage.value = ''
     previewTab.value = 'logs'
     attachmentsExpanded.value = false
+    descriptionExpanded.value = false
     acceptancesExpanded.value = false
     traceExpanded.value = false
     void loadDetail()
@@ -507,7 +499,7 @@ async function handleAttachmentPicked(event: Event): Promise<void> {
 async function handleDownload(attachment: BugAttachment): Promise<void> {
   errorMessage.value = ''
   try {
-    const { blob, fileName } = await downloadFile(`/attachments/${attachment.id}/download`)
+    const { blob, fileName } = await downloadFile(attachmentDownloadPath(attachment))
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
@@ -519,6 +511,18 @@ async function handleDownload(attachment: BugAttachment): Promise<void> {
   } catch (error) {
     errorMessage.value = isApiError(error) ? error.message : '附件下载失败，请稍后重试'
   }
+}
+
+/**
+ * 正文图片存放在草稿图片表，绑定后仍使用专属内容接口；其他附件继续使用普通下载接口。
+ *
+ * @param attachment 当前要读取的统一附件视图
+ * @return 已由服务端授权的二进制读取路径
+ */
+function attachmentDownloadPath(attachment: BugAttachment): string {
+  return attachment.bizType === 'BUG_DESCRIPTION'
+    ? `/bug-draft-images/${attachment.id}/content`
+    : `/attachments/${attachment.id}/download`
 }
 
 /** 判断附件是否可在浏览器安全地直接预览，兼容旧数据缺少 contentType 的场景。 */
@@ -540,7 +544,7 @@ async function openImagePreview(attachment: BugAttachment): Promise<void> {
   imagePreviewLoading.value = true
   errorMessage.value = ''
   try {
-    const { blob } = await downloadFile(`/attachments/${attachment.id}/download`)
+    const { blob } = await downloadFile(attachmentDownloadPath(attachment))
     if (!blob.type.startsWith('image/') && !isPreviewableImage(attachment)) {
       throw new Error('附件不是可预览的图片')
     }
@@ -615,21 +619,31 @@ onBeforeUnmount(clearImagePreviewUrl)
           <div class="bug-detail__title-main">
             <span class="bug-detail__no">{{ bug.bugNo }}</span>
             <h2>{{ bug.title }}</h2>
-          </div>
-          <div v-if="drawerMode" class="bug-detail__drawer-overview">
-            <button
-              type="button"
-              class="bug-detail__description-trigger"
-              :class="{ 'is-empty': !descriptionSummary }"
-              :disabled="!canEditBasic"
-              @click="openInfoDialog"
-            >
-              {{ descriptionSummary || '点击添加问题描述' }}
-            </button>
-            <p class="bug-detail__drawer-updated">
-              <AppIcon name="clock" :size="17" />
-              最后更新于 {{ formatDateTime(bug.updatedAt) }}
-            </p>
+            <!-- 描述紧跟标题展示，并保留 Markdown 与受保护图片的完整渲染能力。 -->
+            <section class="bug-detail__description-inline" aria-label="问题描述">
+              <button
+                type="button"
+                class="bug-detail__description-toggle"
+                :aria-expanded="descriptionExpanded"
+                aria-controls="bug-description"
+                @click="descriptionExpanded = !descriptionExpanded"
+              >
+                <span>问题描述</span>
+                <span>{{ descriptionExpanded ? '收起' : '展开' }}</span>
+                <AppIcon
+                  name="chevron-down"
+                  :size="17"
+                  :class="{ 'bug-detail__description-chevron--expanded': descriptionExpanded }"
+                />
+              </button>
+              <div
+                v-show="descriptionExpanded"
+                id="bug-description"
+                class="bug-detail__description-content"
+              >
+                <ProtectedMarkdownPreview :model-value="bug.descriptionMd" />
+              </div>
+            </section>
           </div>
           <div class="bug-detail__actions">
             <el-button
@@ -891,7 +905,11 @@ onBeforeUnmount(clearImagePreviewUrl)
             <section v-for="group in attachmentGroups" :key="group.type" class="attachment-group">
               <h4>{{ group.label }} <span>{{ group.attachments.length }}</span></h4>
               <ul class="attachment-list">
-                <li v-for="attachment in group.attachments" :key="attachment.id" class="attachment-row">
+                <li
+                  v-for="attachment in group.attachments"
+                  :key="`${attachment.bizType}-${attachment.id}`"
+                  class="attachment-row"
+                >
                   <span class="attachment-row__icon"><AppIcon name="submitted" :size="22" /></span>
                   <span class="attachment-row__main">
                     <span class="attachment-row__name" :title="attachment.originalName">
@@ -1210,9 +1228,11 @@ onBeforeUnmount(clearImagePreviewUrl)
 }
 
 .bug-detail__title-main {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: baseline;
-  gap: 12px;
+  column-gap: 12px;
+  flex: 1 1 520px;
   min-width: 0;
 }
 
@@ -1226,6 +1246,47 @@ onBeforeUnmount(clearImagePreviewUrl)
   font-family: monospace;
   color: #909399;
   flex-shrink: 0;
+}
+
+.bug-detail__description-inline {
+  grid-column: 1 / -1;
+  max-width: 920px;
+  margin-top: 14px;
+  border-top: 1px solid var(--bl-border);
+}
+
+.bug-detail__description-toggle {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+  padding: 12px 0 8px;
+  color: var(--bl-text-secondary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.bug-detail__description-toggle span:nth-child(2) {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.bug-detail__description-toggle:hover {
+  color: var(--bl-primary-light);
+}
+
+.bug-detail__description-content {
+  padding: 4px 0 8px;
+}
+
+.bug-detail__description-chevron--expanded {
+  transform: rotate(180deg);
 }
 
 .bug-detail__actions {
@@ -1366,6 +1427,8 @@ onBeforeUnmount(clearImagePreviewUrl)
   min-height: 54px;
   align-items: center;
   gap: 12px;
+  /* 操作组由 auto margin 推到右侧，行内边距保证预览、下载、删除不会紧贴分组边框。 */
+  padding: 0 18px 0 12px;
   border-top: 1px solid var(--bl-border);
 }
 
@@ -1819,7 +1882,7 @@ onBeforeUnmount(clearImagePreviewUrl)
 }
 
 .bug-detail--drawer .bug-detail__summary :deep(.el-card__body) {
-  /* 为编号、标题与描述摘要留出呼吸感，贴近 Plane 详情面板的顶部层级。 */
+  /* 为编号、标题与可折叠描述留出呼吸感，贴近 Plane 详情面板的顶部层级。 */
   padding-top: 50px;
 }
 
@@ -1843,51 +1906,6 @@ onBeforeUnmount(clearImagePreviewUrl)
 .bug-detail--drawer .bug-detail__title-main h2 {
   font-size: 28px;
   line-height: 1.35;
-}
-
-.bug-detail__drawer-overview {
-  max-width: 680px;
-  margin-top: 16px;
-}
-
-.bug-detail__description-trigger {
-  display: -webkit-box;
-  width: 100%;
-  padding: 0;
-  overflow: hidden;
-  color: var(--bl-text-secondary);
-  font: inherit;
-  font-size: 17px;
-  line-height: 1.65;
-  text-align: left;
-  cursor: pointer;
-  background: transparent;
-  border: 0;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.bug-detail__description-trigger.is-empty {
-  color: var(--bl-muted);
-}
-
-.bug-detail__description-trigger:not(:disabled):hover {
-  color: var(--bl-primary-light);
-}
-
-.bug-detail__description-trigger:disabled {
-  cursor: default;
-  opacity: 1;
-}
-
-.bug-detail__drawer-updated {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 7px;
-  margin: 54px 0 0;
-  color: var(--bl-text-secondary);
-  font-size: 13px;
 }
 
 .bug-detail--drawer .bug-detail__actions {
@@ -1989,11 +2007,6 @@ onBeforeUnmount(clearImagePreviewUrl)
     font-size: 24px;
   }
 
-  .bug-detail__drawer-updated {
-    justify-content: flex-start;
-    margin-top: 30px;
-  }
-
   .bug-properties__row {
     grid-template-columns: 118px minmax(0, 1fr);
     column-gap: 12px;
@@ -2002,7 +2015,8 @@ onBeforeUnmount(clearImagePreviewUrl)
   .attachment-row {
     flex-wrap: wrap;
     gap: 8px 10px;
-    padding: 10px 0;
+    /* 窄屏换行后仍为第二行操作按钮保留右侧安全距离。 */
+    padding: 10px 14px 10px 12px;
   }
 
   .attachment-row__name {

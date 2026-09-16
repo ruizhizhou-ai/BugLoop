@@ -49,7 +49,7 @@ public class BugControllerTest {
     @BeforeEach
     protected void prepare() throws Exception {
         for (String table : List.of("bug_acceptance", "bug_description_history", "bug_operation_log",
-                "bug_comment", "bug_attachment", "bug", "workspace_operation_log", "workspace_member",
+                "bug_comment", "bug_attachment", "bug_draft_image", "bug", "workspace_operation_log", "workspace_member",
                 "workspace", "sys_user")) {
             jdbc.update("DELETE FROM " + table);
         }
@@ -427,6 +427,38 @@ public class BugControllerTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value(40404));
         assertThat(count("bug_operation_log", id)).isEqualTo(3);
+    }
+
+    /** Markdown 图片应先以个人草稿上传，再在同一事务内绑定到创建成功的 Bug。 */
+    @Test
+    protected void Markdown正文图片上传预览与创建绑定() throws Exception {
+        MockMultipartFile imageFile = new MockMultipartFile("file", "screen.png", "image/png", new byte[]{1, 2, 3});
+        MvcResult uploaded = mockMvc.perform(multipart("/api/workspaces/{id}/bug-draft-images", workspaceId)
+                        .file(imageFile).header("Authorization", "Bearer " + owner.token()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(0))
+                .andExpect(jsonPath("$.data.url").value(org.hamcrest.Matchers.containsString("/bug-draft-images/")))
+                .andReturn();
+        long imageId = ((Number) JsonPath.read(uploaded.getResponse().getContentAsString(), "$.data.id")).longValue();
+        String imageUrl = "/api/bug-draft-images/%d/content".formatted(imageId);
+
+        mockMvc.perform(get(imageUrl).header("Authorization", "Bearer " + owner.token()))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("image/png"))
+                .andExpect(header().string("Content-Disposition", org.hamcrest.Matchers.containsString("inline")))
+                .andExpect(content().bytes(new byte[]{1, 2, 3}));
+        fail(outsider, get(imageUrl), 403, 40302);
+
+        long bugId = create(owner, "{\"title\":\"含图片\",\"descriptionMd\":\"![图片](%s)\"}".formatted(imageUrl));
+        assertThat(jdbc.queryForObject("SELECT bug_id FROM bug_draft_image WHERE id = ?", Long.class, imageId))
+                .isEqualTo(bugId);
+        assertThat(jdbc.queryForObject("SELECT status FROM bug_draft_image WHERE id = ?", String.class, imageId))
+                .isEqualTo("BOUND");
+        // 已绑定的正文图片要进入统一附件视图，前端才能在“全部附件”中按来源展示和下载。
+        ok(owner, get("/api/bugs/{id}", bugId))
+                .andExpect(jsonPath("$.data.attachments[0].bizType").value("BUG_DESCRIPTION"))
+                .andExpect(jsonPath("$.data.attachments[0].originalName").value("screen.png"))
+                .andExpect(jsonPath("$.data.attachments[0].canDelete").value(false));
     }
 
     /** 评论与附件写入必须遵守成员边界、空间停用和 Bug 关闭约束；历史附件仍允许上传人清理。 */

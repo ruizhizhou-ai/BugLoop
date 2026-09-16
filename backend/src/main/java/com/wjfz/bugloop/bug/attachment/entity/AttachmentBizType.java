@@ -6,6 +6,8 @@ package com.wjfz.bugloop.bug.attachment.entity;
 
 /** 附件所属业务动作类型。 */
 public enum AttachmentBizType {
+    /** Bug Markdown 问题描述中引用的图片；仅用于详情聚合展示，不允许通过普通附件接口写入。 */
+    BUG_DESCRIPTION,
     /** 创建 Bug 时随提单补传的附件。 */
     BUG_CREATE,
     /** Bug 处理过程补充的附件，当前以 Bug 本身作为业务上下文。 */

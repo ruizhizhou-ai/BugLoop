@@ -1,6 +1,7 @@
 # 数据库迁移目录
 
-本目录保存 Flyway SQL Migration，是数据库 Schema 的唯一变更入口。
+本目录保存全部 Flyway SQL Migration，是数据库 Schema 的唯一变更入口。
 
 迁移文件使用 `V{版本号}__{英文说明}.sql` 命名，例如 `V1__create_initial_schema.sql`。已经在共享环境执行的迁移不得修改，应通过新增迁移完成后续调整。
 
+迁移默认面向 MySQL 8.0。若个别 DDL 仅能在 MySQL 执行，应使用 MySQL 可执行注释封装，并确认 H2 会将其作为普通注释跳过；这样本地、生产和 H2 测试环境均加载本目录，且同一版本只有一份脚本。

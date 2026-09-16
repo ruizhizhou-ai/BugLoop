@@ -121,6 +121,13 @@ vi.mock('md-editor-v3', () => ({
   MdPreview: { template: '<div class="md-preview" />' },
 }))
 
+vi.mock('@/shared/components/ProtectedMarkdownPreview.vue', () => ({
+  default: {
+    props: { modelValue: { type: String, required: true } },
+    template: '<div class="protected-markdown-preview">{{ modelValue }}</div>',
+  },
+}))
+
 const BUG_BASE: BugDetail = {
   id: 101,
   workspaceId: 1,
@@ -287,14 +294,29 @@ describe('BugDetailView', () => {
     expect(wrapper.text()).toContain('李四')
   })
 
-  it('抽屉模式应在属性前展示编号、标题和问题描述摘要', async () => {
+  it('抽屉模式应在标题下展示默认收起的问题描述', async () => {
     const wrapper = await mountDetail(BUG_BASE, { drawerMode: true })
 
-    expect(wrapper.find('.bug-detail__drawer-overview').exists()).toBe(true)
     expect(wrapper.text()).toContain(BUG_BASE.bugNo)
     expect(wrapper.text()).toContain(BUG_BASE.title)
-    expect(wrapper.find('.bug-detail__description-trigger').text()).toContain('问题现象')
-    expect(wrapper.text()).toContain('最后更新于')
+    expect(wrapper.find('.bug-detail__drawer-overview').exists()).toBe(false)
+
+    const descriptionToggle = wrapper.get('.bug-detail__description-toggle')
+    expect(descriptionToggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.get('.bug-detail__description-content').attributes('style')).toContain('display: none')
+
+    await descriptionToggle.trigger('click')
+    expect(descriptionToggle.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('.bug-detail__description-content').attributes('style')).not.toContain('display: none')
+  })
+
+  /** 原始问题描述必须交给 Markdown 预览组件，不能再以纯文本摘要替代正文内容。 */
+  it('应使用受保护 Markdown 预览展示问题描述', async () => {
+    const markdown = '# 第一步\n\n![截图](/api/bug-draft-images/3/content)'
+    const wrapper = await mountDetail({ ...BUG_BASE, descriptionMd: markdown })
+
+    expect(wrapper.text()).toContain('问题描述')
+    expect(wrapper.find('.protected-markdown-preview').text()).toBe(markdown)
   })
 
   it('待处理且当前用户是负责人时应显示开始处理', async () => {
@@ -517,6 +539,35 @@ describe('BugDetailView', () => {
     expect(toggle.attributes('aria-expanded')).toBe('true')
     expect(contentElement.style.display).not.toBe('none')
     expect(wrapper.text()).toContain('console-error.png')
+  })
+
+  /** Markdown 正文图片也应纳入统一附件分组，但不显示删除操作以避免产生失效正文引用。 */
+  it('应在全部附件中展示问题描述图片', async () => {
+    const wrapper = await mountDetail({
+      ...BUG_BASE,
+      attachments: [
+        {
+          id: 3,
+          bugId: 101,
+          bizType: 'BUG_DESCRIPTION',
+          bizId: 101,
+          originalName: 'login-error.png',
+          fileSize: 128_000,
+          contentType: 'image/png',
+          uploaderId: CURRENT_USER.id,
+          uploaderName: '张三',
+          uploaderAvatar: null,
+          createdAt: '2026-09-14T10:10:00',
+          canDelete: false,
+        },
+      ],
+    })
+
+    await wrapper.find('.attachment-section__toggle').trigger('click')
+
+    expect(wrapper.text()).toContain('问题描述图片')
+    expect(wrapper.text()).toContain('login-error.png')
+    expect(wrapper.text()).toContain('问题描述')
   })
 
   it('创建者点击“存为模板”应带着当前 Bug 内容打开弹窗', async () => {

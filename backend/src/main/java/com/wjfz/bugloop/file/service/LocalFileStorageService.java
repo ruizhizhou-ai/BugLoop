@@ -57,6 +57,32 @@ public class LocalFileStorageService {
         return new StoredFile(storageName, relativePath.toString().replace('\\', '/'));
     }
 
+    /**
+     * 将尚未绑定 Bug 的 Markdown 图片存入工作空间草稿目录。
+     * 草稿目录与普通附件目录隔离，避免创建失败或用户放弃编辑时伪造不存在的 Bug 归属。
+     *
+     * @param file 已完成图片校验的上传文件
+     * @param workspaceId 所属工作空间
+     * @param extension 已校验的小写图片扩展名
+     * @return 仅供草稿图片元数据保存的内部存储信息
+     */
+    public StoredFile storeDraftImage(MultipartFile file, Long workspaceId, String extension) {
+        LocalDate today = LocalDate.now();
+        String storageName = UUID.randomUUID() + "." + extension;
+        Path relativePath = Path.of(workspaceId.toString(), "draft-images",
+                String.valueOf(today.getYear()), "%02d".formatted(today.getMonthValue()), storageName);
+        Path target = resolve(relativePath.toString());
+        try {
+            Files.createDirectories(target.getParent());
+            try (InputStream input = file.getInputStream()) {
+                Files.copy(input, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException exception) {
+            throw storageFailure("正文图片保存失败", exception);
+        }
+        return new StoredFile(storageName, relativePath.toString().replace('\\', '/'));
+    }
+
     /** 根据数据库保存的相对路径打开文件，文件缺失时返回业务性 404。 */
     public Resource load(String relativePath) {
         Path path = resolve(relativePath);

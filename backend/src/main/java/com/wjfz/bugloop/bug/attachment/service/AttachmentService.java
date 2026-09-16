@@ -155,6 +155,8 @@ public class AttachmentService {
         AttachmentBizType type = requestedType == null ? AttachmentBizType.BUG_PROCESS : requestedType;
         Long businessId = requestedId == null ? bug.getId() : requestedId;
         switch (type) {
+            // 正文图片只允许通过“先上传草稿、再创建 Bug 绑定”的流程产生，不能被普通附件接口伪造。
+            case BUG_DESCRIPTION -> throw invalid("正文图片不能通过普通附件接口上传");
             case BUG_CREATE -> {
                 requireSameBusinessId(businessId, bug.getId(), "提单附件必须关联当前 Bug");
                 requireSameUploader(access.currentUser().getId(), bug.getCreatorId(), "只有 Bug 提交人可以补传提单附件");
@@ -205,6 +207,7 @@ public class AttachmentService {
     /** 返回用于操作日志的来源名称，保持审计记录对业务用户可读。 */
     private String labelFor(AttachmentBizType type) {
         return switch (type) {
+            case BUG_DESCRIPTION -> "问题描述图片";
             case BUG_CREATE -> "提单附件";
             case BUG_PROCESS -> "处理附件";
             case ACCEPT_REJECT -> "验收驳回附件";

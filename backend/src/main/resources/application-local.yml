@@ -6,6 +6,6 @@ spring:
     password: ${MYSQL_PASSWORD:bugloop}
   flyway:
     enabled: true
+    # 所有生产迁移统一存放在该目录；V5 通过 MySQL 可执行注释兼容 H2 测试库。
     locations: classpath:db/migration
     encoding: UTF-8
-

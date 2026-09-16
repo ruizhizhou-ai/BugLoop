@@ -7,6 +7,7 @@ spring:
     password:
   flyway:
     enabled: true
+    # H2 会跳过 V5 中的 MySQL 可执行注释，因此复用生产迁移目录。
     locations: classpath:db/migration
     encoding: UTF-8
 

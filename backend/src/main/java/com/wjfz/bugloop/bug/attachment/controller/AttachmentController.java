@@ -5,6 +5,8 @@ import com.wjfz.bugloop.bug.attachment.service.AttachmentService;
 import com.wjfz.bugloop.bug.attachment.entity.AttachmentBizType;
 import com.wjfz.bugloop.bug.attachment.vo.AttachmentDownload;
 import com.wjfz.bugloop.bug.vo.BugAttachmentVO;
+import com.wjfz.bugloop.bug.markdownimage.service.MarkdownImageService;
+import com.wjfz.bugloop.bug.markdownimage.vo.BugDraftImageVO;
 import com.wjfz.bugloop.common.api.ApiResponse;
 import java.nio.charset.StandardCharsets;
 import org.springframework.core.io.Resource;
@@ -27,10 +29,12 @@ import org.springframework.web.multipart.MultipartFile;
 @RequestMapping("/api")
 public class AttachmentController {
     private final AttachmentService service;
+    private final MarkdownImageService markdownImages;
 
     /** 注入附件业务服务。 */
-    public AttachmentController(AttachmentService service) {
+    public AttachmentController(AttachmentService service, MarkdownImageService markdownImages) {
         this.service = service;
+        this.markdownImages = markdownImages;
     }
 
     /** 上传一个符合白名单和数量限制的附件，并绑定到创建、验收、评论等真实业务记录。 */
@@ -39,6 +43,25 @@ public class AttachmentController {
                                                 @RequestParam(required = false) AttachmentBizType bizType,
                                                 @RequestParam(required = false) Long bizId) {
         return ApiResponse.success(service.upload(bugId, file, bizType, bizId));
+    }
+
+    /** 上传创建 Bug 前的 Markdown 草稿图片，返回编辑器可插入的受控图片地址。 */
+    @PostMapping(path = "/workspaces/{workspaceId}/bug-draft-images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<BugDraftImageVO> uploadMarkdownImage(@PathVariable Long workspaceId,
+                                                             @RequestPart("file") MultipartFile file) {
+        return ApiResponse.success(markdownImages.upload(workspaceId, file));
+    }
+
+    /** 以内联方式返回 Markdown 正文图片，读取权限由草稿或绑定 Bug 的空间边界决定。 */
+    @GetMapping("/bug-draft-images/{imageId}/content")
+    public ResponseEntity<Resource> markdownImageContent(@PathVariable Long imageId) {
+        AttachmentDownload content = markdownImages.content(imageId);
+        return ResponseEntity.ok()
+                .contentType(parseMediaType(content.contentType()))
+                .contentLength(content.fileSize())
+                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline()
+                        .filename(content.originalName(), StandardCharsets.UTF_8).build().toString())
+                .body(content.resource());
     }
 
     /** 下载已经过工作空间权限校验的附件。 */

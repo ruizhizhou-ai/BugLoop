@@ -5,11 +5,14 @@ package com.wjfz.bugloop;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * BugLoop 后端启动类。
  */
 @SpringBootApplication
+// 启用草稿正文图片过期清理等受控后台任务，具体任务仍由各业务服务声明执行周期。
+@EnableScheduling
 public class BugLoopApplication {
 
     /**
@@ -21,4 +24,3 @@ public class BugLoopApplication {
         SpringApplication.run(BugLoopApplication.class, args);
     }
 }
-

@@ -1,6 +1,6 @@
 <!-- 本文件实现 Bug 创建页，支持从内置或个人模板回填基础字段，默认验收人为当前用户。 -->
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ElButton,
@@ -26,6 +26,7 @@ import 'element-plus/es/components/popper/style/css'
 import 'element-plus/es/components/radio/style/css'
 import 'element-plus/es/components/select/style/css'
 import { MdEditor } from 'md-editor-v3'
+import type { UploadImgEvent } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 
 import { useBugStore } from './bugStore'
@@ -36,6 +37,7 @@ import {
   attachmentValidationError,
   formatFileSize,
 } from './bugMeta'
+import { uploadBugDraftImage } from './bugApi'
 import type { BugCreated, BugPriority } from './bugApi'
 import { SYSTEM_BUG_TEMPLATES } from './bugTemplates'
 import {
@@ -47,6 +49,7 @@ import type { BugTemplateViewModel } from './bugTemplateApi'
 import { useAuthStore } from '@/features/auth/authStore'
 import { useWorkspaceStore } from '@/features/workspace/workspaceStore'
 import AppNotice from '@/shared/components/AppNotice.vue'
+import { downloadFile } from '@/shared/api/http'
 import { isApiError } from '@/shared/api/types'
 
 const route = useRoute()
@@ -66,6 +69,9 @@ const attachmentInput = ref<HTMLInputElement | null>(null)
 const pendingFiles = ref<File[]>([])
 // 附件依赖 Bug 主键，创建成功后立即上传；上传失败时保留该对象并提供进入详情的入口。
 const createdBug = ref<BugCreated | null>(null)
+// 图片内容接口要求 Authorization 请求头；缓存为 Blob URL 后，Markdown 编辑器预览不会裸请求受保护地址。
+const markdownImageUrls = new Map<string, string>()
+const markdownImageTasks = new Map<string, Promise<string>>()
 const personalTemplates = ref<BugTemplateViewModel[]>([])
 const templatesLoading = ref(false)
 const templateManagerVisible = ref(false)
@@ -204,6 +210,59 @@ async function handleTemplateSelection(
   appliedTemplateKey.value = selectedKey
 }
 
+/**
+ * 上传编辑器选择的图片，先获取带鉴权的 Blob 缓存，再把稳定的后端地址交给编辑器写入 Markdown。
+ *
+ * @param files Markdown 编辑器选择的图片列表
+ * @param callback 编辑器提供的图片 URL 回填函数
+ */
+const handleMarkdownImageUpload: UploadImgEvent = async (files, callback) => {
+  if (!files.length) {
+    return
+  }
+  errorMessage.value = ''
+  try {
+    const images = await Promise.all(files.map((file) => uploadBugDraftImage(workspaceId.value, file)))
+    // 先完成 Blob 缓存再回填 Markdown，避免编辑器预览用原生 img 请求时遗漏 Authorization 请求头。
+    await Promise.all(images.map((image) => cacheMarkdownImage(image.url)))
+    callback(images.map((image) => image.url))
+  } catch (error) {
+    errorMessage.value = isApiError(error) ? error.message : '正文图片上传失败，请稍后重试'
+  }
+}
+
+/** 解析编辑器预览图片地址；只有已缓存的受保护图片替换为页面生命周期内的 Blob URL。 */
+function transformMarkdownImageUrl(url: string): string {
+  return markdownImageUrls.get(url) ?? url
+}
+
+/** 通过统一二进制客户端拉取图片，复用 Authorization 请求头并避免在 Markdown 内持久化登录凭证。 */
+function cacheMarkdownImage(url: string): Promise<string> {
+  const cached = markdownImageUrls.get(url)
+  if (cached) {
+    return Promise.resolve(cached)
+  }
+  const pending = markdownImageTasks.get(url)
+  if (pending) {
+    return pending
+  }
+  // downloadFile 的客户端基路径已是 /api；Markdown 需要保留 /api 前缀，下载时则必须避免再次拼接。
+  const task = downloadFile(toBinaryApiPath(url))
+    .then(({ blob }) => {
+      const objectUrl = URL.createObjectURL(blob)
+      markdownImageUrls.set(url, objectUrl)
+      return objectUrl
+    })
+    .finally(() => markdownImageTasks.delete(url))
+  markdownImageTasks.set(url, task)
+  return task
+}
+
+/** 将持久化在 Markdown 内的 API 绝对路径转换为二进制客户端可用的相对路径。 */
+function toBinaryApiPath(url: string): string {
+  return url.startsWith('/api/') ? url.slice('/api'.length) : url
+}
+
 /** 创建 Bug，随后补传选中的附件并跳转详情页。 */
 async function handleSubmit(): Promise<void> {
   if (!formRef.value) {
@@ -278,6 +337,12 @@ function removeAttachment(index: number): void {
 function goBack(): void {
   void router.push({ name: 'bug-list', params: { workspaceId: workspaceId.value } })
 }
+
+/** 页面关闭时释放临时 Blob URL，避免反复打开创建页导致浏览器内存累积。 */
+onBeforeUnmount(() => {
+  markdownImageUrls.forEach((objectUrl) => URL.revokeObjectURL(objectUrl))
+  markdownImageUrls.clear()
+})
 </script>
 
 <template>
@@ -365,6 +430,8 @@ function goBack(): void {
             v-model="form.descriptionMd"
             class="bug-create__editor"
             placeholder="问题现象、复现步骤、期望结果等"
+            :on-upload-img="handleMarkdownImageUpload"
+            :transform-img-url="transformMarkdownImageUrl"
           />
         </el-form-item>
 
