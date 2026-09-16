@@ -415,12 +415,17 @@ async function loadMore(): Promise<void> {
 
 <style scoped>
 .bug-comment-panel {
-  padding: 20px 22px;
-  border-top: 1px solid var(--bl-border);
+  /* 评论与验收、附件、操作记录保持相同容器层级，避免抽屉中讨论内容混入相邻模块。 */
+  padding: 18px;
+  margin: 16px 0;
+  background: var(--bl-panel-raised);
+  border: 1px solid var(--bl-border);
+  border-radius: 9px;
 }
 
 .bug-comment-panel__header {
   display: flex;
+  min-height: 22px;
   align-items: center;
   justify-content: space-between;
   margin: 0;

@@ -687,7 +687,12 @@ onBeforeUnmount(clearImagePreviewUrl)
         <md-preview :model-value="bug.fixDescriptionMd" preview-theme="github" />
       </el-card>
 
-      <el-card v-if="bugStore.acceptances.length" class="acceptance-section" shadow="never">
+      <el-card
+        v-if="bugStore.acceptances.length"
+        class="detail-feature-section acceptance-section"
+        :class="{ 'acceptance-section--collapsed': !acceptancesExpanded }"
+        shadow="never"
+      >
         <template #header>
           <button
             type="button"
@@ -759,7 +764,7 @@ onBeforeUnmount(clearImagePreviewUrl)
         </div>
       </el-card>
 
-      <section class="attachment-section" aria-label="附件">
+      <section class="detail-feature-section attachment-section" aria-label="附件">
         <input
           ref="attachmentInput"
           class="attachment-input"
@@ -838,11 +843,12 @@ onBeforeUnmount(clearImagePreviewUrl)
       </section>
 
       <BugCommentPanel
+        class="detail-feature-section"
         :bug-id="resolvedBugId"
         :writable="mutable"
       />
 
-      <section class="detail-trace">
+      <section class="detail-feature-section detail-trace">
         <header class="detail-trace__tabs">
           <button
             type="button"
@@ -1144,7 +1150,8 @@ onBeforeUnmount(clearImagePreviewUrl)
   font-size: 13px;
 }
 
-.attachment-section {
+/* 验收、附件、评论和追溯都采用同一容器边界，帮助用户在长详情中快速区分功能区域。 */
+.detail-feature-section {
   margin-bottom: 16px;
   overflow: hidden;
   background: var(--bl-panel-raised);
@@ -1183,6 +1190,9 @@ onBeforeUnmount(clearImagePreviewUrl)
 
 .attachment-section__toggle span {
   color: var(--bl-text-secondary);
+  /* 与验收记录、评论、操作记录共用紧凑的辅助数量层级，避免附件数量继承标题字号。 */
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .attachment-section__toggle:hover,
@@ -1528,20 +1538,33 @@ onBeforeUnmount(clearImagePreviewUrl)
 }
 
 .acceptance-section :deep(.el-card__header) {
-  padding: 14px 18px;
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--bl-border);
+}
+
+.acceptance-section :deep(.el-card__body) {
+  padding: 0 16px 10px;
+}
+
+/* 折叠时不保留 Element Plus 的空 body，避免标题和空白区被误读成两个验收模块。 */
+.acceptance-section--collapsed :deep(.el-card__header) {
+  border-bottom: 0;
+}
+
+.acceptance-section--collapsed :deep(.el-card__body) {
+  display: none;
 }
 
 .detail-trace {
-  margin-bottom: 16px;
-  overflow: hidden;
-  background: linear-gradient(145deg, #171e26, #141a21);
-  border: 1px solid var(--bl-border);
-  border-radius: 9px;
+  background: var(--bl-panel-raised);
 }
 
 .detail-trace__tabs {
   display: flex;
-  min-height: 54px;
+  min-height: 58px;
   align-items: stretch;
   padding: 0 18px;
   border-bottom: 1px solid var(--bl-border);
@@ -1674,6 +1697,24 @@ onBeforeUnmount(clearImagePreviewUrl)
 
 .bug-detail--drawer :deep(.el-card__body) {
   padding: 18px 4px 24px;
+}
+
+/* 右侧抽屉保留标题概览的连续阅读感，但功能模块必须有独立容器，避免长记录混成一段。 */
+.bug-detail--drawer :deep(.acceptance-section.el-card) {
+  margin: 16px 0;
+  background: var(--bl-panel-raised) !important;
+  border: 1px solid var(--bl-border);
+  border-radius: 9px;
+}
+
+.bug-detail--drawer :deep(.acceptance-section .el-card__header) {
+  min-height: 58px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--bl-border);
+}
+
+.bug-detail--drawer :deep(.acceptance-section .el-card__body) {
+  padding: 0 16px 10px;
 }
 
 .bug-detail--drawer .bug-detail__summary :deep(.el-card__body) {
@@ -1820,48 +1861,9 @@ onBeforeUnmount(clearImagePreviewUrl)
   font-weight: 600;
 }
 
+.bug-detail--drawer .attachment-section,
 .bug-detail--drawer .detail-trace {
-  margin: 0;
-  background: transparent;
-  border: 0;
-  border-radius: 0;
-}
-
-/* 抽屉中附件与其他内容保持连续的工作项流，不额外绘制独立卡片。 */
-.bug-detail--drawer .attachment-section {
-  margin: 0;
-  background: transparent;
-  border: 0;
-  border-bottom: 1px solid var(--bl-border);
-  border-radius: 0;
-}
-
-.bug-detail--drawer .attachment-section__header {
-  padding: 0 4px;
-}
-
-.bug-detail--drawer .attachment-section__content {
-  padding: 0 4px 8px;
-}
-
-/* 独立详情页的附件标题起点是容器 16px 加按钮 2px，评论统一使用同一内容基线。 */
-.bug-detail:not(.bug-detail--drawer) :deep(.bug-comment-panel) {
-  padding-right: 18px;
-  padding-left: 18px;
-}
-
-/* 抽屉附件标题起点是连续内容流 4px 加按钮 2px，评论与其保持一致。 */
-.bug-detail--drawer :deep(.bug-comment-panel) {
-  padding-right: 6px;
-  padding-left: 6px;
-}
-
-.bug-detail--drawer .detail-trace__tabs {
-  padding: 0 6px;
-}
-
-.bug-detail--drawer .detail-trace__body {
-  padding: 20px 4px;
+  margin: 16px 0;
 }
 
 @media (max-width: 650px) {

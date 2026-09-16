@@ -1,6 +1,6 @@
 <!-- 本文件实现 Bug 列表页：筛选、分页、状态与人员展示，并提供新建入口。 -->
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ElButton,
@@ -67,24 +67,8 @@ const OPTIONAL_FILTER_OPTIONS: Array<{ key: OptionalFilterKey; label: string }> 
   { key: 'acceptor', label: '验收人' },
   { key: 'date', label: '创建时间' },
 ]
-const FILTER_VISIBILITY_STORAGE_KEY = 'bugloop.bugListFilters'
-
-/** 读取保存的筛选项显示设置，没有有效配置时默认全部打开。 */
-function readVisibleOptionalFilters(): OptionalFilterKey[] {
-  try {
-    const saved: unknown = JSON.parse(localStorage.getItem(FILTER_VISIBILITY_STORAGE_KEY) ?? 'null')
-    if (Array.isArray(saved)) {
-      return saved.filter((key): key is OptionalFilterKey =>
-        OPTIONAL_FILTER_OPTIONS.some((option) => option.key === key),
-      )
-    }
-  } catch {
-    // 存储内容损坏时回退到默认值
-  }
-  return OPTIONAL_FILTER_OPTIONS.map(({ key }) => key)
-}
-
-const visibleOptionalFilters = ref<OptionalFilterKey[]>(readVisibleOptionalFilters())
+// 默认只显示搜索框；路由预置的实际筛选值会由 isFilterVisible 自动展示。
+const visibleOptionalFilters = ref<OptionalFilterKey[]>([])
 
 /** 「全部显示」总开关的回显状态：全选、部分选中或全部隐藏。 */
 const allFiltersVisible = computed(
@@ -94,23 +78,20 @@ const filterSelectionPartial = computed(
   () => visibleOptionalFilters.value.length > 0 && !allFiltersVisible.value,
 )
 
-/** 记录显示设置，刷新或下次进入列表页时保持同样的筛选布局。 */
-function persistVisibleFilters(keys: OptionalFilterKey[]): void {
+/** 更新当前页面的可见筛选项；状态由页面作用域快照保存，不写入浏览器本地存储。 */
+function setVisibleOptionalFilters(keys: OptionalFilterKey[]): void {
   visibleOptionalFilters.value = keys
-  localStorage.setItem(FILTER_VISIBILITY_STORAGE_KEY, JSON.stringify(keys))
 }
 
-const FILTER_PANEL_COLLAPSED_KEY = 'bugloop.bugListFiltersCollapsed'
-
-// 整个筛选区可以整体收起，只保留列表清单；默认展开并记住用户的选择。
-const filtersCollapsed = ref(localStorage.getItem(FILTER_PANEL_COLLAPSED_KEY) === '1')
+// 整个筛选区可以整体收起；刷新后始终恢复为展开，避免用户遗忘隐藏状态。
+const filtersCollapsed = ref(false)
 
 function toggleFilterPanel(): void {
   filtersCollapsed.value = !filtersCollapsed.value
-  localStorage.setItem(FILTER_PANEL_COLLAPSED_KEY, filtersCollapsed.value ? '1' : '0')
 }
 
 const workspaceId = computed(() => Number(route.params.workspaceId))
+const listScope = computed(() => `${String(route.name ?? 'bug-list')}:${workspaceId.value}`)
 const canCreate = computed(() => workspaceStore.isEnabled)
 const pageTitle = computed(() => String(route.meta?.bugListTitle ?? 'Bug 列表'))
 const pageSubtitle = computed(() =>
@@ -129,18 +110,11 @@ const detailDrawerVisible = computed({
   },
 })
 
-onMounted(() => {
-  applyRoutePreset()
-  void loadBugs()
-})
-
 /**
- * 根据侧栏入口设置人员和状态筛选，让个人工作视图直接复用标准列表能力。
- * 多个入口共用同一个列表组件，进入任何入口都要先清空上一个入口遗留的条件，
- * 否则从「待我验收」切回「Bug 列表」会继续沿用验收人的筛选。
+ * 根据侧栏入口设置默认人员和状态筛选，让个人工作视图直接复用标准列表能力。
+ * 调用方会在写入预置条件前重置查询，保证预置仅用于首次打开或刷新后的默认状态。
  */
 function applyRoutePreset(): void {
-  bugStore.resetQuery()
   const preset = route.meta?.bugListPreset
   const userId = auth.user?.id
   if (!preset || !userId) {
@@ -153,6 +127,55 @@ function applyRoutePreset(): void {
     bugStore.query.status = 'WAIT_ACCEPTANCE'
   }
 }
+
+/** 保存即将离开页面的筛选快照，供同一会话中返回该列表页时恢复。 */
+function saveActivePageFilterState(): void {
+  if (!activeListScope) return
+  bugStore.saveListPageFilterState(activeListScope, {
+    query: { ...bugStore.query },
+    dateRange: dateRange.value ? [...dateRange.value] as [string, string] : null,
+    visibleOptionalFilters: [...visibleOptionalFilters.value],
+    filtersCollapsed: filtersCollapsed.value,
+  })
+}
+
+let activeListScope = ''
+const KEYWORD_DEBOUNCE_DELAY = 300
+let keywordTimer: number | undefined
+
+/**
+ * 切换列表路由或工作空间时恢复对应会话快照；不存在快照则使用该页预置默认条件。
+ * 状态只保存在 Pinia 内存中，浏览器刷新创建新实例后不会携带旧筛选。
+ */
+async function activateListPage(scope: string): Promise<void> {
+  saveActivePageFilterState()
+  bugStore.resetQuery()
+  dateRange.value = null
+  setVisibleOptionalFilters([])
+  filtersCollapsed.value = false
+
+  const saved = bugStore.getListPageFilterState(scope)
+  if (saved) {
+    Object.assign(bugStore.query, saved.query)
+    dateRange.value = saved.dateRange
+    setVisibleOptionalFilters(
+      saved.visibleOptionalFilters.filter((key): key is OptionalFilterKey =>
+        OPTIONAL_FILTER_OPTIONS.some((option) => option.key === key),
+      ),
+    )
+    filtersCollapsed.value = saved.filtersCollapsed
+  } else {
+    applyRoutePreset()
+  }
+  activeListScope = scope
+  await loadBugs()
+}
+
+watch(
+  listScope,
+  (scope) => void activateListPage(scope),
+  { immediate: true },
+)
 
 /** 切换工作空间时清空筛选，避免把上一个空间的条件带过来。 */
 async function loadBugs(): Promise<void> {
@@ -172,9 +195,6 @@ async function applyFilters(): Promise<void> {
   await loadBugs()
 }
 
-const KEYWORD_DEBOUNCE_DELAY = 300
-let keywordTimer: number | undefined
-
 // 关键字输入停顿后自动查询，输入部分编号或标题片段即可看到模糊匹配结果。
 watch(
   () => bugStore.query.keyword,
@@ -190,13 +210,19 @@ function applyKeywordNow(): void {
   void applyFilters()
 }
 
-onBeforeUnmount(() => window.clearTimeout(keywordTimer))
+onBeforeUnmount(() => {
+  window.clearTimeout(keywordTimer)
+  // 离开到非列表页时同样保留当前会话快照；刷新不会经过此分支，因此仍会恢复默认条件。
+  saveActivePageFilterState()
+})
 
-/** 重置全部筛选条件，并恢复默认的全部展开状态。 */
+/** 重置为当前列表页面的默认筛选条件与默认精简布局。 */
 async function resetFilters(): Promise<void> {
   bugStore.resetQuery()
   dateRange.value = null
-  persistVisibleFilters(OPTIONAL_FILTER_OPTIONS.map(({ key }) => key))
+  setVisibleOptionalFilters([])
+  filtersCollapsed.value = false
+  applyRoutePreset()
   await loadBugs()
 }
 
@@ -266,21 +292,21 @@ function handleVisibleFiltersChange(nextValues: Array<string | number | boolean>
   const hiddenKeys = selectedOptionalFilters.value.filter((key) => !nextKeys.includes(key))
   const requiresReload = hiddenKeys.some((key) => hasFilterValue(key))
   hiddenKeys.forEach(clearFilterValue)
-  persistVisibleFilters(nextKeys)
+  setVisibleOptionalFilters(nextKeys)
   if (requiresReload) void applyFilters()
 }
 
 /** 「全部显示」总开关：一次切换全部筛选条件，隐藏时同步清除已生效的查询值。 */
 function toggleAllFilters(checked: boolean | string | number): void {
   if (checked === true) {
-    persistVisibleFilters(OPTIONAL_FILTER_OPTIONS.map(({ key }) => key))
+    setVisibleOptionalFilters(OPTIONAL_FILTER_OPTIONS.map(({ key }) => key))
     return
   }
   const hiddenKeys = OPTIONAL_FILTER_OPTIONS.map(({ key }) => key).filter((key) =>
     hasFilterValue(key),
   )
   hiddenKeys.forEach(clearFilterValue)
-  persistVisibleFilters([])
+  setVisibleOptionalFilters([])
   if (hiddenKeys.length) void applyFilters()
 }
 
@@ -617,18 +643,6 @@ function avatarTone(user: { id: number } | null): string {
           </el-table-column>
           <el-table-column label="更新时间" width="160">
             <template #default="{ row }">{{ formatDateTime(row.updatedAt) }}</template>
-          </el-table-column>
-          <el-table-column width="54" align="center">
-            <template #default="{ row }">
-              <button
-                class="row-more"
-                type="button"
-                aria-label="查看 Bug 详情"
-                @click.stop="openBug(row.id)"
-              >
-                <span /><span /><span />
-              </button>
-            </template>
           </el-table-column>
           <template #empty>
             <el-empty description="当前条件下没有 Bug">
@@ -1089,32 +1103,6 @@ function avatarTone(user: { id: number } | null): string {
 
 .person-avatar--tone-4 {
   background: linear-gradient(145deg, #3898c9, #63c7f6);
-}
-
-.row-more {
-  display: inline-flex;
-  width: 32px;
-  height: 32px;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  color: var(--bl-text-secondary);
-  cursor: pointer;
-  background: transparent;
-  border: 0;
-  border-radius: 6px;
-}
-
-.row-more:hover {
-  color: var(--bl-text);
-  background: var(--bl-control-hover);
-}
-
-.row-more span {
-  width: 3px;
-  height: 3px;
-  background: currentcolor;
-  border-radius: 50%;
 }
 
 .bug-list__footer {

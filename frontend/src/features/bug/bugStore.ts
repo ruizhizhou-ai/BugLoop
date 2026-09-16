@@ -53,10 +53,23 @@ function createDefaultQuery(): BugListQuery {
 
 const COMMENT_PAGE_SIZE = 20
 
+/**
+ * 单个 Bug 列表页面在当前前端会话内暂存的筛选状态。
+ * 以路由和工作空间作为作用域，避免「我提交的」和「待我验收」等页面相互污染；
+ * 不写入浏览器存储，因此刷新页面后自然回到各自的默认预置条件。
+ */
+export interface BugListPageFilterState {
+  query: BugListQuery
+  dateRange: [string, string] | null
+  visibleOptionalFilters: string[]
+  filtersCollapsed: boolean
+}
+
 export const useBugStore = defineStore('bug', () => {
   const list = ref<BugSummary[]>([])
   const total = ref(0)
   const query = reactive<BugListQuery>(createDefaultQuery())
+  const listPageFilterStates = new Map<string, BugListPageFilterState>()
   const current = ref<BugDetail | null>(null)
   const loading = ref(false)
   const detailLoading = ref(false)
@@ -93,6 +106,29 @@ export const useBugStore = defineStore('bug', () => {
     list.value = []
     total.value = 0
     current.value = null
+  }
+
+  /** 保存当前列表页的筛选状态，仅驻留在 Pinia 实例中，不跨浏览器刷新持久化。 */
+  function saveListPageFilterState(scope: string, state: BugListPageFilterState): void {
+    // 拷贝可变对象，防止随后编辑当前 query 时反向改写其他页面的快照。
+    listPageFilterStates.set(scope, {
+      query: { ...state.query },
+      dateRange: state.dateRange ? [...state.dateRange] as [string, string] : null,
+      visibleOptionalFilters: [...state.visibleOptionalFilters],
+      filtersCollapsed: state.filtersCollapsed,
+    })
+  }
+
+  /** 读取指定列表页的会话快照，调用方可据此恢复该页面上一次离开时的筛选条件。 */
+  function getListPageFilterState(scope: string): BugListPageFilterState | null {
+    const state = listPageFilterStates.get(scope)
+    if (!state) return null
+    return {
+      query: { ...state.query },
+      dateRange: state.dateRange ? [...state.dateRange] as [string, string] : null,
+      visibleOptionalFilters: [...state.visibleOptionalFilters],
+      filtersCollapsed: state.filtersCollapsed,
+    }
   }
 
   /** 创建 Bug，返回主键和业务编号供跳转详情页。 */
@@ -256,6 +292,8 @@ export const useBugStore = defineStore('bug', () => {
   /** 清空全部状态，账号切换时调用。 */
   function reset(): void {
     resetQuery()
+    // 登录账号变化后不能复用上一账号在各列表页留下的会话筛选快照。
+    listPageFilterStates.clear()
     loading.value = false
     detailLoading.value = false
     submitting.value = false
@@ -286,6 +324,8 @@ export const useBugStore = defineStore('bug', () => {
     list,
     total,
     query,
+    saveListPageFilterState,
+    getListPageFilterState,
     current,
     loading,
     detailLoading,

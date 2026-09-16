@@ -117,10 +117,11 @@ describe('BugListView', () => {
     setActivePinia(createPinia())
     vi.resetAllMocks()
     workspaceState.isEnabled = true
+    routeState.name = 'bug-list'
+    routeState.path = '/workspaces/1/bugs'
+    routeState.params = { workspaceId: '1' }
     routeState.query = {}
     routeState.meta = {}
-    localStorage.removeItem('bugloop.bugListFilters')
-    localStorage.removeItem('bugloop.bugListFiltersCollapsed')
   })
 
   it('输入关键字后应防抖自动查询，无需按回车', async () => {
@@ -226,8 +227,8 @@ describe('BugListView', () => {
     expect(wrapper.find('.filter-panel-toggle').exists()).toBe(true)
     expect(wrapper.get('.filter-panel-toggle').text()).toContain('展开筛选')
     expect(wrapper.find('.el-table__body-wrapper tbody tr').exists()).toBe(true)
-    expect(localStorage.getItem('bugloop.bugListFiltersCollapsed')).toBe('1')
-    // 收起只是隐藏界面，不重新查询也不清空结果。
+    // 收起只保留当前会话状态，不写入本地存储、更不会重新查询或清空结果。
+    expect(localStorage.getItem('bugloop.bugListFiltersCollapsed')).toBeNull()
     expect(vi.mocked(bugApi.fetchBugs).mock.calls.length).toBe(callsBeforeCollapse)
     expect(wrapper.text()).toContain('BUG-000101')
 
@@ -238,7 +239,7 @@ describe('BugListView', () => {
     expect(wrapper.get('.filter-panel-toggle').text()).toContain('收起筛选')
   })
 
-  it('筛选条件默认全部展开，可一键全部隐藏并记住设置', async () => {
+  it('筛选条件默认精简展示，当前会话内可展开全部但不跨刷新持久化', async () => {
     vi.mocked(bugApi.fetchBugs).mockResolvedValue({
       records: [],
       total: 0,
@@ -249,36 +250,52 @@ describe('BugListView', () => {
     const wrapper = mountList()
     await vi.waitFor(() => expect(bugApi.fetchBugs).toHaveBeenCalled())
 
-    for (const cls of [
-      'keyword',
-      'status',
-      'priority',
-      'assignee',
-      'creator',
-      'acceptor',
-      'date',
-    ]) {
-      expect(wrapper.find(`.filter-item--${cls}`).exists()).toBe(true)
-    }
-    expect(wrapper.find('.filter-customize').exists()).toBe(true)
-
-    await wrapper.find('.filter-customize__toggle-all input').setValue(false)
-
     expect(wrapper.find('.filter-item--keyword').exists()).toBe(true)
     expect(wrapper.find('.filter-item--status').exists()).toBe(false)
     expect(wrapper.find('.filter-item--date').exists()).toBe(false)
-    expect(JSON.parse(localStorage.getItem('bugloop.bugListFilters') ?? 'null')).toEqual([])
+    expect(wrapper.find('.filter-customize').exists()).toBe(true)
 
+    await wrapper.find('.filter-customize__toggle-all input').setValue(true)
+
+    expect(wrapper.find('.filter-item--keyword').exists()).toBe(true)
+    expect(wrapper.find('.filter-item--status').exists()).toBe(true)
+    expect(wrapper.find('.filter-item--date').exists()).toBe(true)
+    expect(localStorage.getItem('bugloop.bugListFilters')).toBeNull()
+  })
+
+  it('不同列表入口在同一会话中保存各自筛选，新的 Pinia 实例则恢复默认条件', async () => {
     vi.mocked(bugApi.fetchBugs).mockResolvedValue({
       records: [],
       total: 0,
       page: 1,
       pageSize: 20,
     })
-    const remounted = mountList()
+    const store = useBugStore()
+    const allList = mountList()
     await vi.waitFor(() => expect(bugApi.fetchBugs).toHaveBeenCalled())
-    expect(remounted.find('.filter-item--keyword').exists()).toBe(true)
-    expect(remounted.find('.filter-item--status').exists()).toBe(false)
+    store.query.keyword = '登录'
+    allList.unmount()
+
+    routeState.name = 'assigned-bugs'
+    routeState.path = '/workspaces/1/bugs/assigned'
+    routeState.meta = { bugListPreset: 'assigned' }
+    const assignedList = mountList()
+    await vi.waitFor(() => expect(useBugStore().query.assigneeId).toBeUndefined())
+    assignedList.unmount()
+
+    routeState.name = 'bug-list'
+    routeState.path = '/workspaces/1/bugs'
+    routeState.meta = {}
+    const restoredAllList = mountList()
+    await vi.waitFor(() => expect(useBugStore().query.keyword).toBe('登录'))
+    restoredAllList.unmount()
+
+    // 新 Pinia 实例等同浏览器刷新：内存快照被清空，只保留默认筛选。
+    setActivePinia(createPinia())
+    const refreshedAllList = mountList()
+    await vi.waitFor(() => expect(bugApi.fetchBugs).toHaveBeenCalled())
+    expect(useBugStore().query.keyword).toBeUndefined()
+    refreshedAllList.unmount()
   })
 
   it('点击 Bug 后应保留列表路由并用查询参数打开右侧详情', async () => {
@@ -291,7 +308,8 @@ describe('BugListView', () => {
 
     const wrapper = mountList()
     await vi.waitFor(() => expect(wrapper.text()).toContain('BUG-000101'))
-    await wrapper.get('button[aria-label="查看 Bug 详情"]').trigger('click')
+    // 列表不再保留无实际菜单的三点入口，整行点击是打开右侧详情的唯一入口。
+    await wrapper.get('.el-table__body-wrapper tbody tr').trigger('click')
 
     expect(push).toHaveBeenCalledWith({
       name: 'bug-list',
