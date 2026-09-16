@@ -5,8 +5,11 @@
 package com.wjfz.bugloop.bug.attachment.service;
 
 import com.wjfz.bugloop.bug.attachment.entity.BugAttachment;
+import com.wjfz.bugloop.bug.attachment.entity.AttachmentBizType;
 import com.wjfz.bugloop.bug.attachment.mapper.BugAttachmentMapper;
 import com.wjfz.bugloop.bug.attachment.vo.AttachmentDownload;
+import com.wjfz.bugloop.bug.comment.entity.BugComment;
+import com.wjfz.bugloop.bug.comment.mapper.BugCommentMapper;
 import com.wjfz.bugloop.bug.entity.Bug;
 import com.wjfz.bugloop.bug.entity.BugStatus;
 import com.wjfz.bugloop.bug.mapper.BugAuditMapper;
@@ -39,31 +42,38 @@ public class AttachmentService {
     private final BugMapper bugs;
     private final BugAttachmentMapper attachments;
     private final BugAuditMapper audit;
+    private final BugCommentMapper comments;
     private final WorkspaceAccessService workspaces;
     private final LocalFileStorageService storage;
 
     /** 注入附件元数据、Bug 授权、审计和本地文件存储服务。 */
     public AttachmentService(BugMapper bugs, BugAttachmentMapper attachments, BugAuditMapper audit,
-                             WorkspaceAccessService workspaces, LocalFileStorageService storage) {
+                             BugCommentMapper comments, WorkspaceAccessService workspaces,
+                             LocalFileStorageService storage) {
         this.bugs = bugs;
         this.attachments = attachments;
         this.audit = audit;
+        this.comments = comments;
         this.workspaces = workspaces;
         this.storage = storage;
     }
 
     /**
-     * 上传白名单内文件并追加操作日志；关闭 Bug 和停用空间均不可再改变附件集。
+     * 上传白名单内文件并绑定到真实业务记录；停用空间一律拒绝，关闭 Bug 仅允许验收通过和评论记录补传。
+     *
      * @param bugId 目标 Bug 主键
      * @param file 上传文件
+     * @param requestedBizType 客户端声明的附件来源，可为空以兼容旧客户端
+     * @param requestedBizId 对应业务记录主键，可为空以兼容旧客户端的处理附件
      * @return 不含内部存储路径的附件摘要
      */
     @Transactional
-    public BugAttachmentVO upload(Long bugId, MultipartFile file) {
+    public BugAttachmentVO upload(Long bugId, MultipartFile file, AttachmentBizType requestedBizType, Long requestedBizId) {
         Bug reference = requireBug(bugId);
         WorkspaceAccess access = workspaces.requireWritableMemberForUpdate(reference.getWorkspaceId());
         Bug bug = requireBugAfterWorkspaceLock(bugId, access);
-        requireAttachmentWritable(bug);
+        AttachmentContext context = resolveContext(bug, access, requestedBizType, requestedBizId);
+        requireAttachmentWritable(bug, context.type());
         FileMetadata metadata = validateFile(file);
         if (attachments.countActiveByBugId(bugId) >= MAX_ATTACHMENTS_PER_BUG) {
             throw new BusinessException(HttpStatus.CONFLICT, 40901, "单个 Bug 最多上传 20 个附件");
@@ -73,6 +83,8 @@ public class AttachmentService {
         LocalDateTime now = LocalDateTime.now();
         BugAttachment attachment = new BugAttachment();
         attachment.setBugId(bugId);
+        attachment.setBizType(context.type());
+        attachment.setBizId(context.id());
         attachment.setOriginalName(metadata.originalName());
         attachment.setStorageName(stored.storageName());
         attachment.setStoragePath(stored.relativePath());
@@ -81,12 +93,14 @@ public class AttachmentService {
         attachment.setUploaderId(access.currentUser().getId());
         attachment.setDeleted(false);
         attachment.setCreatedAt(now);
+        attachment.setUpdatedAt(now);
         attachments.insert(attachment);
         audit.insertLogAt(bug.getId(), bug.getWorkspaceId(), access.currentUser().getId(),
                 "ADD_ATTACHMENT", "attachment", null, metadata.originalName(),
-                access.currentUser().getDisplayName() + " 上传了附件“" + metadata.originalName() + "”", now);
-        return new BugAttachmentVO(attachment.getId(), attachment.getOriginalName(), attachment.getFileSize(),
-                attachment.getContentType(), attachment.getUploaderId(), attachment.getCreatedAt());
+                access.currentUser().getDisplayName() + " 上传了" + context.label() + "“" + metadata.originalName() + "”", now);
+        return new BugAttachmentVO(attachment.getId(), attachment.getBugId(), attachment.getBizType(),
+                attachment.getBizId(), attachment.getOriginalName(), attachment.getFileSize(), attachment.getContentType(),
+                attachment.getUploaderId(), access.currentUser().getDisplayName(), null, attachment.getCreatedAt(), true);
     }
 
     /**
@@ -117,7 +131,7 @@ public class AttachmentService {
             throw new BusinessException(HttpStatus.NOT_FOUND, 40404, "附件不存在");
         }
         Bug bug = requireBugAfterWorkspaceLock(attachment.getBugId(), access);
-        requireAttachmentWritable(bug);
+        requireDeletePermission(attachment, access);
         LocalDateTime now = LocalDateTime.now();
         if (attachments.markDeleted(attachmentId, access.currentUser().getId(), now) != 1) {
             throw new BusinessException(HttpStatus.CONFLICT, 40902, "数据已被其他用户修改，请刷新后重试");
@@ -125,6 +139,78 @@ public class AttachmentService {
         audit.insertLogAt(bug.getId(), bug.getWorkspaceId(), access.currentUser().getId(),
                 "DELETE_ATTACHMENT", "attachment", attachment.getOriginalName(), null,
                 access.currentUser().getDisplayName() + " 删除了附件“" + attachment.getOriginalName() + "”", now);
+    }
+
+    /**
+     * 将客户端来源参数绑定到真实业务记录。兼容旧调用时将未声明来源的手工附件归为处理附件并关联当前 Bug。
+     *
+     * @param bug 已锁定并校验空间边界的 Bug
+     * @param access 当前写入用户及其空间角色
+     * @param requestedType 客户端声明的业务来源，可为空以兼容旧客户端
+     * @param requestedId 客户端声明的业务记录主键，可为空以兼容处理附件
+     * @return 已完成归属与上传人校验的业务上下文
+     */
+    private AttachmentContext resolveContext(Bug bug, WorkspaceAccess access, AttachmentBizType requestedType,
+                                             Long requestedId) {
+        AttachmentBizType type = requestedType == null ? AttachmentBizType.BUG_PROCESS : requestedType;
+        Long businessId = requestedId == null ? bug.getId() : requestedId;
+        switch (type) {
+            case BUG_CREATE -> {
+                requireSameBusinessId(businessId, bug.getId(), "提单附件必须关联当前 Bug");
+                requireSameUploader(access.currentUser().getId(), bug.getCreatorId(), "只有 Bug 提交人可以补传提单附件");
+            }
+            case BUG_PROCESS -> requireSameBusinessId(businessId, bug.getId(), "处理附件必须关联当前 Bug");
+            case ACCEPT_REJECT, ACCEPT_PASS -> validateAcceptanceContext(bug, access, type, businessId);
+            case COMMENT -> validateCommentContext(bug, access, businessId);
+        }
+        return new AttachmentContext(type, businessId, labelFor(type));
+    }
+
+    /** 校验验收附件的记录归属、结果类型和操作者，防止把附件伪造绑定到其他验收结论。 */
+    private void validateAcceptanceContext(Bug bug, WorkspaceAccess access, AttachmentBizType type, Long acceptanceId) {
+        var acceptance = audit.acceptanceById(acceptanceId);
+        if (acceptance == null || !bug.getId().equals(acceptance.bugId())) {
+            throw invalid("验收记录不属于当前 Bug");
+        }
+        String expectedResult = type == AttachmentBizType.ACCEPT_REJECT ? "REJECT" : "PASS";
+        if (!expectedResult.equals(acceptance.result())) {
+            throw invalid("附件来源与验收结果不匹配");
+        }
+        requireSameUploader(access.currentUser().getId(), acceptance.acceptorId(), "只有本次验收人可以上传验收附件");
+    }
+
+    /** 校验评论附件只能被评论作者挂载到自己在当前 Bug 下的评论。 */
+    private void validateCommentContext(Bug bug, WorkspaceAccess access, Long commentId) {
+        BugComment comment = comments.selectById(commentId);
+        if (comment == null || !bug.getId().equals(comment.getBugId())) {
+            throw invalid("评论不属于当前 Bug");
+        }
+        requireSameUploader(access.currentUser().getId(), comment.getUserId(), "只有评论作者可以上传评论附件");
+    }
+
+    /** 上传人身份不匹配时统一返回禁止操作，避免调用方绕过来源记录的责任归属。 */
+    private void requireSameUploader(Long currentUserId, Long expectedUserId, String message) {
+        if (!currentUserId.equals(expectedUserId)) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, 40301, message);
+        }
+    }
+
+    /** 业务来源主键必须精确匹配，避免客户端把来源类型正确但记录 ID 指向其他 Bug。 */
+    private void requireSameBusinessId(Long actual, Long expected, String message) {
+        if (!expected.equals(actual)) {
+            throw invalid(message);
+        }
+    }
+
+    /** 返回用于操作日志的来源名称，保持审计记录对业务用户可读。 */
+    private String labelFor(AttachmentBizType type) {
+        return switch (type) {
+            case BUG_CREATE -> "提单附件";
+            case BUG_PROCESS -> "处理附件";
+            case ACCEPT_REJECT -> "验收驳回附件";
+            case ACCEPT_PASS -> "验收附件";
+            case COMMENT -> "评论附件";
+        };
     }
 
     /** 校验文件大小、名称和扩展名白名单，扩展名白名单可同时拒绝可执行文件。 */
@@ -176,10 +262,22 @@ public class AttachmentService {
         });
     }
 
-    /** 关闭 Bug 不再允许增删附件，保持关闭后仅查看、评论的业务边界。 */
-    private void requireAttachmentWritable(Bug bug) {
-        if (bug.getStatus() == BugStatus.CLOSED) {
+    /**
+     * 关闭 Bug 后普通处理、提单附件不可再改变；通过验收和评论附件属于已发生记录，允许记录责任人补传。
+     */
+    private void requireAttachmentWritable(Bug bug, AttachmentBizType type) {
+        if (bug.getStatus() == BugStatus.CLOSED
+                && type != AttachmentBizType.ACCEPT_PASS && type != AttachmentBizType.COMMENT) {
             throw new BusinessException(HttpStatus.CONFLICT, 40901, "Bug 已关闭，不允许修改附件");
+        }
+    }
+
+    /** 删除附件仅允许上传者或具备空间成员管理权限的管理员，逻辑删除不会影响其原始业务记录。 */
+    private void requireDeletePermission(BugAttachment attachment, WorkspaceAccess access) {
+        boolean manager = workspaces.isSystemAdmin(access.currentUser())
+                || (access.currentRole() != null && access.currentRole().canManageMembers());
+        if (!access.currentUser().getId().equals(attachment.getUploaderId()) && !manager) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, 40301, "只能删除自己上传的附件");
         }
     }
 
@@ -217,5 +315,9 @@ public class AttachmentService {
 
     /** 已校验文件的安全展示名、扩展名和浏览器声明类型。 */
     private record FileMetadata(String originalName, String extension, String contentType) {
+    }
+
+    /** 已校验来源类型、业务主键及用于审计展示的中文名称。 */
+    private record AttachmentContext(AttachmentBizType type, Long id, String label) {
     }
 }

@@ -388,8 +388,17 @@ public class BugService {
         Map<Long, User> related = relatedUsers(List.of(bug));
         return BugDetailVO.from(bug, WorkspaceVO.from(access.workspace(), access.currentRole()),
                 BugUserVO.from(related.get(bug.getCreatorId())), BugUserVO.from(related.get(bug.getAssigneeId())),
-                BugUserVO.from(related.get(bug.getAcceptorId())), audit.attachments(bug.getId()),
+                BugUserVO.from(related.get(bug.getAcceptorId())), audit.attachments(bug.getId()).stream()
+                        // 删除入口的可见性必须以服务端当前权限为准，不能依赖客户端保存的用户角色。
+                        .map(attachment -> attachment.withCanDelete(canDeleteAttachment(attachment, access))).toList(),
                 audit.latestAcceptance(bug.getId()));
+    }
+
+    /** 判断当前成员是否可删除附件：上传人、空间管理员或系统管理员均可执行逻辑删除。 */
+    private boolean canDeleteAttachment(BugAttachmentVO attachment, WorkspaceAccess access) {
+        return Objects.equals(attachment.uploaderId(), access.currentUser().getId())
+                || workspaces.isSystemAdmin(access.currentUser())
+                || (access.currentRole() != null && access.currentRole().canManageMembers());
     }
 
     /** 追加业务日志，操作者来自服务端登录上下文。 */

@@ -776,6 +776,30 @@ REJECT
 
 REJECT 时 `comment_md` 必填。
 
+### 43.11 bug_attachment 业务来源扩展
+
+附件仍使用统一的 `bug_attachment` 表，不为提单、验收、评论分别建表。除既有文件元数据、上传人和逻辑删除字段外，增加：
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| biz_type | VARCHAR(32) | NOT NULL | 附件来源类型 |
+| biz_id | BIGINT | NULL | 对应业务记录主键 |
+| updated_at | DATETIME | NULL | 元数据最近更新时间 |
+
+`biz_type` 取值：
+
+```Plain
+BUG_CREATE      提单附件，biz_id = bug_id
+BUG_PROCESS     处理附件，biz_id = bug_id
+ACCEPT_REJECT   验收驳回附件，biz_id = bug_acceptance.id
+ACCEPT_PASS     验收通过附件，biz_id = bug_acceptance.id
+COMMENT         评论附件，biz_id = bug_comment.id
+```
+
+历史附件按兼容策略回填为 `BUG_CREATE`，`biz_id = bug_id`。上传时服务端必须校验业务记录属于当前 Bug；不能只信任客户端传入的来源类型或主键。
+
+普通成员只能删除自己上传的附件；空间 `OWNER` / `ADMIN` 与 `SYSTEM_ADMIN` 可按空间权限逻辑删除附件。删除附件不得删除或改写验收记录、评论、状态流转和操作日志。
+
 ---
 
 ## 四十四、事务和并发规则

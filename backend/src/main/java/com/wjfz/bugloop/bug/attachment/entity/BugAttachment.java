@@ -22,11 +22,14 @@ public class BugAttachment {
     private Long fileSize;
     private String contentType;
     private Long uploaderId;
+    private AttachmentBizType bizType;
+    private Long bizId;
     @TableField("is_deleted")
     private Boolean deleted;
     private Long deletedBy;
     private LocalDateTime deletedAt;
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -44,6 +47,10 @@ public class BugAttachment {
     public void setContentType(String contentType) { this.contentType = contentType; }
     public Long getUploaderId() { return uploaderId; }
     public void setUploaderId(Long uploaderId) { this.uploaderId = uploaderId; }
+    public AttachmentBizType getBizType() { return bizType; }
+    public void setBizType(AttachmentBizType bizType) { this.bizType = bizType; }
+    public Long getBizId() { return bizId; }
+    public void setBizId(Long bizId) { this.bizId = bizId; }
     public Boolean getDeleted() { return deleted; }
     public void setDeleted(Boolean deleted) { this.deleted = deleted; }
     public Long getDeletedBy() { return deletedBy; }
@@ -52,4 +59,6 @@ public class BugAttachment {
     public void setDeletedAt(LocalDateTime deletedAt) { this.deletedAt = deletedAt; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
 }

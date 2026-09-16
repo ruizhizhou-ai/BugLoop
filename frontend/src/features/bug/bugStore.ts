@@ -28,6 +28,7 @@ import {
   submitBug,
   updateBug,
   uploadBugAttachment,
+  uploadBugAttachmentForBusiness,
 } from './bugApi'
 import type {
   BugAcceptanceRecord,
@@ -41,6 +42,7 @@ import type {
   BugSummary,
   CreateBugPayload,
   UpdateBugPayload,
+  AttachmentBizType,
 } from './bugApi'
 
 const DEFAULT_PAGE_SIZE = 20
@@ -156,18 +158,20 @@ export const useBugStore = defineStore('bug', () => {
   }
 
   /** 发表评论后回到第一页重新加载，保证最新评论立即可见。 */
-  async function addComment(bugId: number, contentMd: string): Promise<void> {
-    await withSubmitting(async () => {
-      await createComment(bugId, contentMd)
+  async function addComment(bugId: number, contentMd: string): Promise<BugComment> {
+    return withSubmitting(async () => {
+      const comment = await createComment(bugId, contentMd)
       await loadComments(bugId, 1)
+      return comment
     })
   }
 
   /** 回复后重新加载第一页，保证完整评论树节点按时间正序立即同步到界面。 */
-  async function replyToComment(bugId: number, parentCommentId: number, contentMd: string): Promise<void> {
-    await withSubmitting(async () => {
-      await replyComment(bugId, parentCommentId, contentMd)
+  async function replyToComment(bugId: number, parentCommentId: number, contentMd: string): Promise<BugComment> {
+    return withSubmitting(async () => {
+      const comment = await replyComment(bugId, parentCommentId, contentMd)
       await loadComments(bugId, 1)
+      return comment
     })
   }
 
@@ -206,9 +210,16 @@ export const useBugStore = defineStore('bug', () => {
   }
 
   /** 上传附件后重新读取详情，附件列表以服务端为准。 */
-  async function uploadAttachment(bugId: number, file: File): Promise<void> {
+  async function uploadAttachment(
+    bugId: number,
+    file: File,
+    business?: { bizType: AttachmentBizType; bizId: number },
+  ): Promise<void> {
     await withSubmitting(async () => {
-      await uploadBugAttachment(bugId, file)
+      // 未传业务上下文时保留旧上传调用，兼容仍在运行的旧客户端和既有单元测试。
+      await (business
+        ? uploadBugAttachmentForBusiness(bugId, file, business)
+        : uploadBugAttachment(bugId, file))
       await loadDetail(bugId)
     })
   }
@@ -222,12 +233,18 @@ export const useBugStore = defineStore('bug', () => {
   }
 
   /** 创建后补传附件，返回失败文件名清单，单个失败不中断其余文件。 */
-  async function uploadAttachments(bugId: number, files: File[]): Promise<string[]> {
+  async function uploadAttachments(
+    bugId: number,
+    files: File[],
+    business?: { bizType: AttachmentBizType; bizId: number },
+  ): Promise<string[]> {
     const failed: string[] = []
     await withSubmitting(async () => {
       for (const file of files) {
         try {
-          await uploadBugAttachment(bugId, file)
+          await (business
+            ? uploadBugAttachmentForBusiness(bugId, file, business)
+            : uploadBugAttachment(bugId, file))
         } catch {
           failed.push(file.name)
         }

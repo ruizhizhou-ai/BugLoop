@@ -803,8 +803,10 @@ GET /api/bugs/{bugId}/description-history/{versionNo}
 GET /api/bugs/{bugId}/acceptances
 ```
 
-返回该 Bug 的完整验收历史，默认按实际写入时间倒序。字段包括验收人、通过/驳回结果、验收意见和状态变化；
+返回该 Bug 的完整验收历史，默认按实际写入时间倒序。字段包括验收人、通过/驳回结果、验收意见、状态变化和本次验收附件；
 详情接口中的 `latestAcceptance` 仍只表示最近一条记录。
+
+服务端先读取验收记录，再批量读取 `ACCEPT_REJECT` / `ACCEPT_PASS` 来源的附件并按 `bizId` 组装，禁止逐条验收记录查询附件。
 
 ---
 
@@ -816,6 +818,15 @@ GET /api/bugs/{bugId}/acceptances
 POST /api/bugs/{bugId}/attachments
 Content-Type: multipart/form-data
 ```
+
+除 `file` 外支持：
+
+| 字段 | 必填 | 说明 |
+|---|---:|---|
+| bizType | 否 | `BUG_CREATE`、`BUG_PROCESS`、`ACCEPT_REJECT`、`ACCEPT_PASS`、`COMMENT` |
+| bizId | 否 | 对应业务记录主键 |
+
+未传来源字段的旧客户端按 `BUG_PROCESS + bugId` 兼容。服务端会验证验收记录、评论记录与当前 Bug 的归属及上传人责任，不能跨 Bug 绑定。
 
 第一期单文件大小：
 
@@ -887,6 +898,8 @@ DELETE /api/attachments/{attachmentId}
 ```
 
 采用逻辑删除并写操作日志。
+
+响应中的附件 VO 至少包含：`id`、`bugId`、`bizType`、`bizId`、原始文件名、大小、内容类型、上传人信息、创建时间与 `canDelete`。`canDelete` 由服务端计算，前端不得自行推断权限。
 
 ---
 

@@ -2,6 +2,7 @@
 package com.wjfz.bugloop.bug.attachment.controller;
 
 import com.wjfz.bugloop.bug.attachment.service.AttachmentService;
+import com.wjfz.bugloop.bug.attachment.entity.AttachmentBizType;
 import com.wjfz.bugloop.bug.attachment.vo.AttachmentDownload;
 import com.wjfz.bugloop.bug.vo.BugAttachmentVO;
 import com.wjfz.bugloop.common.api.ApiResponse;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -31,10 +33,12 @@ public class AttachmentController {
         this.service = service;
     }
 
-    /** 上传一个符合白名单和数量限制的附件。 */
+    /** 上传一个符合白名单和数量限制的附件，并绑定到创建、验收、评论等真实业务记录。 */
     @PostMapping(path = "/bugs/{bugId}/attachments", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public ApiResponse<BugAttachmentVO> upload(@PathVariable Long bugId, @RequestPart("file") MultipartFile file) {
-        return ApiResponse.success(service.upload(bugId, file));
+    public ApiResponse<BugAttachmentVO> upload(@PathVariable Long bugId, @RequestPart("file") MultipartFile file,
+                                                @RequestParam(required = false) AttachmentBizType bizType,
+                                                @RequestParam(required = false) Long bizId) {
+        return ApiResponse.success(service.upload(bugId, file, bizType, bizId));
     }
 
     /** 下载已经过工作空间权限校验的附件。 */

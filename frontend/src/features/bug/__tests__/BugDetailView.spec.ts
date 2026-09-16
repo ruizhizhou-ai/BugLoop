@@ -54,7 +54,9 @@ const storeMocks = {
   loadTrace: vi.fn<() => Promise<void>>(),
   addComment: vi.fn<() => Promise<void>>(),
   reject: vi.fn<(bugId: number, commentMd: string) => Promise<void>>(),
-  uploadAttachment: vi.fn<(bugId: number, file: File) => Promise<void>>(),
+  uploadAttachment: vi.fn<
+    (bugId: number, file: File, business?: { bizType: string; bizId: number }) => Promise<void>
+  >(),
   isVersionConflict: vi.fn<(error: unknown) => boolean>(() => false),
 }
 vi.mock('../bugStore', () => ({
@@ -99,7 +101,8 @@ vi.mock('../bugStore', () => ({
     updateBasic: () => storeMocks.updateBasic(),
     assign: vi.fn<(bugId: number, assigneeId: number) => Promise<void>>(),
     setAcceptor: vi.fn<(bugId: number, acceptorId: number) => Promise<void>>(),
-    uploadAttachment: (bugId: number, file: File) => storeMocks.uploadAttachment(bugId, file),
+    uploadAttachment: (bugId: number, file: File, business?: { bizType: string; bizId: number }) =>
+      storeMocks.uploadAttachment(bugId, file, business),
     removeAttachment: vi.fn<(bugId: number, attachmentId: number) => Promise<void>>(),
     openHistoryDetail: vi.fn<(bugId: number, versionNo: number) => Promise<void>>(),
     closeHistoryDetail: vi.fn<() => void>(),
@@ -325,6 +328,7 @@ describe('BugDetailView', () => {
         fromStatus: 'WAIT_ACCEPTANCE',
         toStatus: 'CLOSED',
         createdAt: '2026-09-15T12:00:00',
+        attachments: [],
       },
       {
         id: 1,
@@ -336,6 +340,7 @@ describe('BugDetailView', () => {
         fromStatus: 'WAIT_ACCEPTANCE',
         toStatus: 'REOPENED',
         createdAt: '2026-09-14T12:00:00',
+        attachments: [],
       },
     ]
     const wrapper = await mountDetail({ ...BUG_BASE, status: 'CLOSED' })
@@ -379,7 +384,20 @@ describe('BugDetailView', () => {
   })
 
   it('验收驳回时应在原因提交成功后上传暂存的问题截图', async () => {
-    const wrapper = await mountDetail({ ...BUG_BASE, status: 'WAIT_ACCEPTANCE' })
+    const wrapper = await mountDetail({
+      ...BUG_BASE,
+      status: 'WAIT_ACCEPTANCE',
+      // Store 的真实实现会用驳回响应刷新 current；此轻量 Mock 预置本次记录主键以验证绑定参数。
+      latestAcceptance: {
+        id: 88,
+        acceptorId: CURRENT_USER.id,
+        result: 'REJECT',
+        commentMd: '登录页仍出现空白区域',
+        fromStatus: 'WAIT_ACCEPTANCE',
+        toStatus: 'REOPENED',
+        createdAt: '2026-09-16T10:00:00',
+      },
+    })
     const rejectButton = wrapper
       .findAll('button')
       .find((button) => button.text().includes('验收驳回'))
@@ -401,7 +419,10 @@ describe('BugDetailView', () => {
     await flushPromises()
 
     expect(storeMocks.reject).toHaveBeenCalledWith(101, '登录页仍出现空白区域')
-    expect(storeMocks.uploadAttachment).toHaveBeenCalledWith(101, screenshot)
+    expect(storeMocks.uploadAttachment).toHaveBeenCalledWith(101, screenshot, {
+      bizType: 'ACCEPT_REJECT',
+      bizId: 88,
+    })
   })
 
   it('附件列表默认收起，点击附件标题后才展开文件行', async () => {
@@ -410,11 +431,17 @@ describe('BugDetailView', () => {
       attachments: [
         {
           id: 1,
+          bugId: 101,
+          bizType: 'BUG_PROCESS',
+          bizId: 101,
           originalName: 'console-error.png',
           fileSize: 199_680,
           contentType: 'image/png',
           uploaderId: CURRENT_USER.id,
+          uploaderName: '张三',
+          uploaderAvatar: null,
           createdAt: '2026-09-14T10:10:00',
+          canDelete: true,
         },
       ],
     })

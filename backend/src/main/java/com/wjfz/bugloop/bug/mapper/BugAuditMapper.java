@@ -5,9 +5,10 @@
 package com.wjfz.bugloop.bug.mapper;
 
 import com.wjfz.bugloop.bug.entity.Bug;
+import com.wjfz.bugloop.bug.attachment.vo.AcceptanceAttachmentTarget;
 import com.wjfz.bugloop.bug.vo.BugAcceptanceVO;
 import com.wjfz.bugloop.bug.vo.BugAttachmentVO;
-import com.wjfz.bugloop.bug.trace.vo.BugAcceptanceHistoryVO;
+import com.wjfz.bugloop.bug.trace.vo.BugAcceptanceHistoryRow;
 import com.wjfz.bugloop.bug.trace.vo.BugDescriptionHistoryDetailVO;
 import com.wjfz.bugloop.bug.trace.vo.BugDescriptionHistoryVO;
 import com.wjfz.bugloop.bug.trace.vo.BugOperationLogVO;
@@ -75,10 +76,22 @@ public interface BugAuditMapper {
             """)
     BugAcceptanceVO latestAcceptance(Long bugId);
 
+    /** 读取指定验收记录的归属、操作者和结论，供附件上传校验 bizId，避免仅按前端参数信任来源。 */
+    @Select("""
+            SELECT id, bug_id, acceptor_id, result
+            FROM bug_acceptance WHERE id = #{acceptanceId}
+            """)
+    AcceptanceAttachmentTarget acceptanceById(Long acceptanceId);
+
     /** 仅返回未删除附件的展示字段，避免泄露服务器路径。 */
     @Select("""
-            SELECT id, original_name, file_size, content_type, uploader_id, created_at
-            FROM bug_attachment WHERE bug_id = #{bugId} AND is_deleted = 0 ORDER BY id
+            SELECT a.id, a.bug_id, a.biz_type, a.biz_id, a.original_name, a.file_size, a.content_type,
+                   a.uploader_id, u.display_name AS uploader_name, NULL AS uploader_avatar,
+                   a.created_at, FALSE AS can_delete
+            FROM bug_attachment a
+            LEFT JOIN sys_user u ON u.id = a.uploader_id
+            WHERE a.bug_id = #{bugId} AND a.is_deleted = 0
+            ORDER BY a.created_at ASC, a.id ASC
             """)
     List<BugAttachmentVO> attachments(Long bugId);
 
@@ -126,5 +139,5 @@ public interface BugAuditMapper {
             WHERE a.bug_id = #{bugId}
             ORDER BY a.created_at DESC, a.id DESC
             """)
-    List<BugAcceptanceHistoryVO> acceptanceHistory(Long bugId);
+    List<BugAcceptanceHistoryRow> acceptanceHistory(Long bugId);
 }

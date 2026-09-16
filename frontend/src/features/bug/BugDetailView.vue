@@ -48,7 +48,7 @@ import {
   formatFileSize,
   rejectionScreenshotValidationError,
 } from './bugMeta'
-import type { BugAttachment, BugPriority } from './bugApi'
+import type { AttachmentBizType, BugAttachment, BugPriority } from './bugApi'
 import { useAuthStore } from '@/features/auth/authStore'
 import { useWorkspaceStore } from '@/features/workspace/workspaceStore'
 import AppIcon from '@/shared/components/AppIcon.vue'
@@ -95,6 +95,14 @@ const imagePreviewVisible = ref(false)
 const imagePreviewLoading = ref(false)
 const imagePreviewUrl = ref('')
 const imagePreviewName = ref('')
+
+const ATTACHMENT_GROUP_META: Record<AttachmentBizType, { label: string; source: string }> = {
+  BUG_CREATE: { label: '提单附件', source: 'Bug 提交' },
+  BUG_PROCESS: { label: '处理附件', source: '处理过程' },
+  ACCEPT_REJECT: { label: '验收驳回附件', source: '验收驳回' },
+  ACCEPT_PASS: { label: '验收附件', source: '验收通过' },
+  COMMENT: { label: '评论附件', source: '评论' },
+}
 
 const acceptForm = reactive({ commentMd: '' })
 const fixForm = reactive({ fixDescriptionMd: '' })
@@ -163,6 +171,17 @@ const canEditBasic = computed(
   () => mutable.value && (isManager.value || isCreator.value) && bug.value?.status !== 'CLOSED',
 )
 const canWriteAttachments = computed(() => mutable.value && bug.value?.status !== 'CLOSED')
+/** 按来源固定排序全部附件，使提单、验收和评论证据不会混在同一列表中。 */
+const attachmentGroups = computed(() => {
+  const attachments = bug.value?.attachments ?? []
+  return (Object.keys(ATTACHMENT_GROUP_META) as AttachmentBizType[])
+    .map((type) => ({
+      type,
+      ...ATTACHMENT_GROUP_META[type],
+      attachments: attachments.filter((attachment) => attachment.bizType === type),
+    }))
+    .filter((group) => group.attachments.length > 0)
+})
 const historyDialogVisible = computed({
   get: () => bugStore.historyDetail !== null,
   set: (visible: boolean) => {
@@ -252,7 +271,7 @@ function openAcceptDialog(mode: 'accept' | 'reject'): void {
   acceptDialogVisible.value = true
 }
 
-/** 清空验收弹窗草稿与待上传截图，避免下次验收误带入上一次驳回证据。 */
+/** 清空验收弹窗草稿与待上传截图，避免下次验收误带入上一次验收证据。 */
 function resetAcceptanceForm(): void {
   acceptForm.commentMd = ''
   rejectionScreenshot.value = null
@@ -261,13 +280,13 @@ function resetAcceptanceForm(): void {
   }
 }
 
-/** 打开驳回截图选择器，截图会在驳回成功后复用既有附件接口上传。 */
+/** 打开验收截图选择器，截图会在验收记录创建成功后绑定到该条记录。 */
 function pickRejectionScreenshot(): void {
   rejectionScreenshotInput.value?.click()
 }
 
 /**
- * 校验并暂存一张驳回问题截图；暂存而非立即上传，避免用户取消驳回时留下无关附件。
+ * 校验并暂存一张验收问题截图；暂存而非立即上传，避免用户取消操作时留下无关附件。
  *
  * @param event 文件选择事件
  */
@@ -290,7 +309,7 @@ function handleRejectionScreenshotPicked(event: Event): void {
   rejectionScreenshot.value = file
 }
 
-/** 移除尚未提交的截图，不会影响已经保存到 Bug 附件区的历史文件。 */
+/** 移除尚未提交的截图，不会影响已经绑定到验收记录的历史文件。 */
 function removeRejectionScreenshot(): void {
   rejectionScreenshot.value = null
 }
@@ -312,16 +331,22 @@ async function handleAcceptance(): Promise<void> {
     return
   }
 
-  if (isRejecting && screenshot) {
+  const acceptanceId = bug.value?.latestAcceptance?.id
+  if (screenshot && !acceptanceId) {
+    // 正常验收响应一定包含最新验收记录；缺失时不猜测业务 ID，避免附件误绑到旧记录。
+    errorMessage.value = '验收已完成，但未获取到本次验收记录，截图未上传'
+  } else if (screenshot && acceptanceId) {
+    const bizType: AttachmentBizType = isRejecting ? 'ACCEPT_REJECT' : 'ACCEPT_PASS'
     const uploaded = await runAction(() =>
-      bugStore.uploadAttachment(resolvedBugId.value, screenshot),
+      bugStore.uploadAttachment(resolvedBugId.value, screenshot, { bizType, bizId: acceptanceId }),
     )
     if (uploaded) {
-      // 让验收人提交后立即能在统一附件区域确认截图已保存。
+      // 让验收人提交后立即在对应验收记录和全部附件分组中确认截图已保存。
       attachmentsExpanded.value = true
+      await loadTrace()
     } else {
       // 驳回状态已经成功写入，不能因附件失败引导用户重复提交一次驳回。
-      errorMessage.value = `验收已驳回，但截图“${screenshot.name}”上传失败，可在附件区重新上传`
+      errorMessage.value = `验收已完成，但截图“${screenshot.name}”上传失败，可在附件区重新上传`
     }
   }
   acceptDialogVisible.value = false
@@ -400,7 +425,12 @@ async function handleAttachmentPicked(event: Event): Promise<void> {
     errorMessage.value = invalidReason
     return
   }
-  const succeeded = await runAction(() => bugStore.uploadAttachment(resolvedBugId.value, file))
+  const succeeded = await runAction(() =>
+    bugStore.uploadAttachment(resolvedBugId.value, file, {
+      bizType: 'BUG_PROCESS',
+      bizId: resolvedBugId.value,
+    }),
+  )
   if (succeeded) {
     // 上传完成后自动展开，用户无需再额外点击即可确认新附件已出现。
     attachmentsExpanded.value = true
@@ -693,6 +723,38 @@ onBeforeUnmount(clearImagePreviewUrl)
               :model-value="record.commentMd"
               preview-theme="github"
             />
+            <section v-if="record.attachments.length" class="acceptance-record__attachments" aria-label="验收附件">
+              <p>附件 {{ record.attachments.length }}</p>
+              <ul class="attachment-list attachment-list--embedded">
+                <li v-for="attachment in record.attachments" :key="attachment.id" class="attachment-row">
+                  <span class="attachment-row__icon"><AppIcon name="submitted" :size="19" /></span>
+                  <span class="attachment-row__main">
+                    <span class="attachment-row__name" :title="attachment.originalName">
+                      {{ attachment.originalName }}
+                    </span>
+                    <span class="attachment-row__size">{{ formatFileSize(attachment.fileSize) }}</span>
+                  </span>
+                  <span class="attachment-row__actions">
+                    <el-button
+                      v-if="isPreviewableImage(attachment)"
+                      link
+                      type="primary"
+                      @click="openImagePreview(attachment)"
+                    >预览</el-button>
+                    <el-button link type="primary" @click="handleDownload(attachment)">下载</el-button>
+                    <el-popconfirm
+                      v-if="attachment.canDelete"
+                      title="删除后不可恢复，确认删除该附件吗？"
+                      confirm-button-text="删除"
+                      cancel-button-text="取消"
+                      @confirm="handleDeleteAttachment(attachment.id)"
+                    >
+                      <template #reference><el-button link type="danger">删除</el-button></template>
+                    </el-popconfirm>
+                  </span>
+                </li>
+              </ul>
+            </section>
           </div>
         </div>
       </el-card>
@@ -713,7 +775,7 @@ onBeforeUnmount(clearImagePreviewUrl)
             aria-controls="bug-attachments"
             @click="attachmentsExpanded = !attachmentsExpanded"
           >
-            <strong>附件</strong>
+            <strong>全部附件</strong>
             <span>{{ bug.attachments.length }}</span>
             <AppIcon
               name="chevron-down"
@@ -734,35 +796,43 @@ onBeforeUnmount(clearImagePreviewUrl)
           </button>
         </div>
         <div v-show="attachmentsExpanded" id="bug-attachments" class="attachment-section__content">
-          <ul v-if="bug.attachments.length" class="attachment-list">
-            <li v-for="attachment in bug.attachments" :key="attachment.id" class="attachment-row">
-              <span class="attachment-row__icon"><AppIcon name="submitted" :size="22" /></span>
-              <span class="attachment-row__name" :title="attachment.originalName">
-                {{ attachment.originalName }}
-              </span>
-              <span class="attachment-row__size">{{ formatFileSize(attachment.fileSize) }}</span>
-              <span class="attachment-row__actions">
-                <el-button
-                  v-if="isPreviewableImage(attachment)"
-                  link
-                  type="primary"
-                  @click="openImagePreview(attachment)"
-                >
-                  预览
-                </el-button>
-                <el-button link type="primary" @click="handleDownload(attachment)">下载</el-button>
-                <el-popconfirm
-                  v-if="canWriteAttachments"
-                  title="删除后不可恢复，确认删除该附件吗？"
-                  confirm-button-text="删除"
-                  cancel-button-text="取消"
-                  @confirm="handleDeleteAttachment(attachment.id)"
-                >
-                  <template #reference><el-button link type="danger">删除</el-button></template>
-                </el-popconfirm>
-              </span>
-            </li>
-          </ul>
+          <div v-if="bug.attachments.length" class="attachment-groups">
+            <section v-for="group in attachmentGroups" :key="group.type" class="attachment-group">
+              <h4>{{ group.label }} <span>{{ group.attachments.length }}</span></h4>
+              <ul class="attachment-list">
+                <li v-for="attachment in group.attachments" :key="attachment.id" class="attachment-row">
+                  <span class="attachment-row__icon"><AppIcon name="submitted" :size="22" /></span>
+                  <span class="attachment-row__main">
+                    <span class="attachment-row__name" :title="attachment.originalName">
+                      {{ attachment.originalName }}
+                    </span>
+                    <span class="attachment-row__meta">
+                      {{ formatFileSize(attachment.fileSize) }} · {{ group.source }} ·
+                      {{ attachment.uploaderName ?? '已注销用户' }} · {{ formatDateTime(attachment.createdAt) }}
+                    </span>
+                  </span>
+                  <span class="attachment-row__actions">
+                    <el-button
+                      v-if="isPreviewableImage(attachment)"
+                      link
+                      type="primary"
+                      @click="openImagePreview(attachment)"
+                    >预览</el-button>
+                    <el-button link type="primary" @click="handleDownload(attachment)">下载</el-button>
+                    <el-popconfirm
+                      v-if="attachment.canDelete"
+                      title="删除后不可恢复，确认删除该附件吗？"
+                      confirm-button-text="删除"
+                      cancel-button-text="取消"
+                      @confirm="handleDeleteAttachment(attachment.id)"
+                    >
+                      <template #reference><el-button link type="danger">删除</el-button></template>
+                    </el-popconfirm>
+                  </span>
+                </li>
+              </ul>
+            </section>
+          </div>
           <p v-else class="attachment-section__empty">暂无附件</p>
         </div>
       </section>
@@ -874,7 +944,7 @@ onBeforeUnmount(clearImagePreviewUrl)
             show-word-limit
           />
         </el-form-item>
-        <el-form-item v-if="acceptMode === 'reject'" label="问题截图（可选）">
+        <el-form-item label="验收附件（可选）">
           <input
             ref="rejectionScreenshotInput"
             class="attachment-input"
@@ -902,7 +972,7 @@ onBeforeUnmount(clearImagePreviewUrl)
             <button v-else type="button" class="rejection-screenshot__pick" @click="pickRejectionScreenshot">
               <AppIcon name="submitted" :size="17" /> 添加截图
             </button>
-            <p>截图将在确认驳回后保存到当前 Bug 附件，支持 PNG、JPG、GIF、WEBP，单个不超过 20MB。</p>
+            <p>附件将在确认后绑定到本次验收记录，支持 PNG、JPG、GIF、WEBP，单个不超过 20MB。</p>
           </div>
         </el-form-item>
       </el-form>
@@ -1152,12 +1222,44 @@ onBeforeUnmount(clearImagePreviewUrl)
   list-style: none;
 }
 
+.attachment-groups {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 8px;
+}
+
+.attachment-group {
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bl-control-bg) 58%, transparent);
+  border: 1px solid var(--bl-border);
+  border-radius: 7px;
+}
+
+.attachment-group h4 {
+  padding: 9px 12px;
+  margin: 0;
+  color: var(--bl-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--bl-border);
+}
+
+.attachment-group h4 span {
+  margin-left: 4px;
+  color: var(--bl-muted);
+  font-weight: 400;
+}
+
 .attachment-row {
   display: flex;
   min-height: 54px;
   align-items: center;
   gap: 12px;
   border-top: 1px solid var(--bl-border);
+}
+
+.attachment-list .attachment-row:first-child {
+  border-top: 0;
 }
 
 .attachment-row__icon {
@@ -1176,6 +1278,20 @@ onBeforeUnmount(clearImagePreviewUrl)
   overflow: hidden;
   color: var(--bl-text);
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attachment-row__main {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.attachment-row__meta {
+  overflow: hidden;
+  color: var(--bl-muted);
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1361,6 +1477,29 @@ onBeforeUnmount(clearImagePreviewUrl)
 
 .acceptance-record__comment {
   margin-top: 8px;
+}
+
+.acceptance-record__attachments {
+  padding: 8px 10px;
+  margin-top: 10px;
+  background: color-mix(in srgb, var(--bl-control-bg) 48%, transparent);
+  border: 1px solid var(--bl-border);
+  border-radius: 7px;
+}
+
+.acceptance-record__attachments > p {
+  margin: 0 0 4px;
+  color: var(--bl-muted);
+  font-size: 12px;
+}
+
+.attachment-list--embedded .attachment-row {
+  min-height: 42px;
+}
+
+.attachment-list--embedded .attachment-row__icon {
+  width: 24px;
+  height: 24px;
 }
 
 /* 验收、日志等长记录共享收起入口，降低抽屉初始信息密度。 */

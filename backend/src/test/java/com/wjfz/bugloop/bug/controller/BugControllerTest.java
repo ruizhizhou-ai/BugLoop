@@ -429,7 +429,7 @@ public class BugControllerTest {
         assertThat(count("bug_operation_log", id)).isEqualTo(3);
     }
 
-    /** 评论与附件写入必须同时遵守成员边界、空间停用和 Bug 关闭三种约束。 */
+    /** 评论与附件写入必须遵守成员边界、空间停用和 Bug 关闭约束；历史附件仍允许上传人清理。 */
     @Test
     protected void 评论与附件写入遵守成员和关闭状态边界() throws Exception {
         long id = createAssigned(owner, "写入边界");
@@ -477,7 +477,8 @@ public class BugControllerTest {
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value(40901));
         mockMvc.perform(delete("/api/attachments/{id}", attachmentId)
                         .header("Authorization", "Bearer " + developer.token()))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value(40901));
+                // 关闭后禁止继续追加普通附件，但不能阻止上传人清理历史附件，避免错误文件永久保留。
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(0));
     }
 
     /** 附件数量上限和历史版本缺失必须返回稳定错误码，而不是落库失败或空响应。 */

@@ -31,6 +31,7 @@ vi.mock('../bugApi', () => ({
   submitBug: vi.fn<typeof bugApi.submitBug>(),
   updateBug: vi.fn<typeof bugApi.updateBug>(),
   uploadBugAttachment: vi.fn<typeof bugApi.uploadBugAttachment>(),
+  uploadBugAttachmentForBusiness: vi.fn<typeof bugApi.uploadBugAttachmentForBusiness>(),
 }))
 
 const BUG_SUMMARY: BugSummary = {
@@ -240,6 +241,7 @@ describe('bugStore', () => {
         fromStatus: 'WAIT_ACCEPTANCE',
         toStatus: 'CLOSED',
         createdAt: '2026-09-14T12:00:00',
+        attachments: [],
       },
     ])
 
@@ -258,11 +260,17 @@ describe('bugStore', () => {
       attachments: [
         {
           id: 9,
+          bugId: 101,
+          bizType: 'BUG_PROCESS',
+          bizId: 101,
           originalName: 'log.txt',
           fileSize: 12,
           contentType: 'text/plain',
           uploaderId: 10,
+          uploaderName: '负责人',
+          uploaderAvatar: null,
           createdAt: '2026-09-14T10:00:00',
+          canDelete: true,
         },
       ],
     }

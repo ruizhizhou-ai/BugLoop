@@ -8,6 +8,13 @@ import type { Workspace } from '@/features/workspace/workspaceApi'
 
 export type BugPriority = 'P0' | 'P1' | 'P2' | 'P3'
 export type BugStatus = 'TODO' | 'PROCESSING' | 'WAIT_ACCEPTANCE' | 'REOPENED' | 'CLOSED'
+/** 统一附件来源，与后端 AttachmentBizType 枚举保持一一对应。 */
+export type AttachmentBizType =
+  | 'BUG_CREATE'
+  | 'BUG_PROCESS'
+  | 'ACCEPT_REJECT'
+  | 'ACCEPT_PASS'
+  | 'COMMENT'
 
 export interface BugUser {
   id: number
@@ -17,11 +24,19 @@ export interface BugUser {
 
 export interface BugAttachment {
   id: number
+  bugId: number
+  bizType: AttachmentBizType
+  bizId: number
   originalName: string
   fileSize: number
   contentType: string | null
   uploaderId: number
+  uploaderName: string | null
+  /** 当前用户资料尚未提供头像字段，接口保留该字段以兼容后续用户档案扩展。 */
+  uploaderAvatar: string | null
   createdAt: string
+  /** 删除授权由后端根据上传人、空间角色和当前状态计算。 */
+  canDelete: boolean
 }
 
 export interface BugAcceptance {
@@ -123,6 +138,7 @@ export interface BugAcceptanceRecord {
   fromStatus: BugStatus
   toStatus: BugStatus
   createdAt: string
+  attachments: BugAttachment[]
 }
 
 export interface BugListQuery {
@@ -216,7 +232,7 @@ export function createComment(bugId: number, contentMd: string): Promise<BugComm
   return http.post<unknown, BugComment>(`/bugs/${bugId}/comments`, { contentMd })
 }
 
-/** 对指定顶级评论发表一级回复，被回复用户由服务端根据父评论确定。 */
+/** 对指定评论发表直接回复，被回复用户由服务端根据父评论确定并保留完整层级关系。 */
 export function replyComment(
   bugId: number,
   parentCommentId: number,
@@ -255,8 +271,21 @@ export function fetchAcceptances(bugId: number): Promise<BugAcceptanceRecord[]> 
 
 /** 附件以 multipart 提交，axios 会自动补上带 boundary 的 Content-Type。 */
 export function uploadBugAttachment(bugId: number, file: File): Promise<BugAttachment> {
+  return uploadBugAttachmentForBusiness(bugId, file)
+}
+
+/** 上传附件时显式提交来源和业务记录主键，确保验收、评论附件可精确回填到其业务区域。 */
+export function uploadBugAttachmentForBusiness(
+  bugId: number,
+  file: File,
+  business?: { bizType: AttachmentBizType; bizId: number },
+): Promise<BugAttachment> {
   const form = new FormData()
   form.append('file', file)
+  if (business) {
+    form.append('bizType', business.bizType)
+    form.append('bizId', String(business.bizId))
+  }
   return http.post<unknown, BugAttachment>(`/bugs/${bugId}/attachments`, form)
 }
 

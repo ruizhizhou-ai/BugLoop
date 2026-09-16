@@ -91,7 +91,10 @@ async function handleSubmit(): Promise<void> {
     createdBug.value = created
 
     const failed = pendingFiles.value.length
-      ? await bugStore.uploadAttachments(created.id, pendingFiles.value)
+      ? await bugStore.uploadAttachments(created.id, pendingFiles.value, {
+          bizType: 'BUG_CREATE',
+          bizId: created.id,
+        })
       : []
     if (failed.length) {
       errorMessage.value = `Bug 已创建（${created.bugNo}），但以下附件上传失败：${failed.join('、')}，可进入详情页重新上传。`

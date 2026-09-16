@@ -13,7 +13,7 @@ import 'md-editor-v3/lib/style.css'
 import { useAuthStore } from '@/features/auth/authStore'
 import { isApiError } from '@/shared/api/types'
 import AppNotice from '@/shared/components/AppNotice.vue'
-import { formatDateTime } from './bugMeta'
+import { ATTACHMENT_ACCEPT, attachmentValidationError, formatDateTime, formatFileSize } from './bugMeta'
 import { useBugStore } from './bugStore'
 import type { BugComment } from './bugApi'
 
@@ -48,6 +48,8 @@ const COMMENT_TOOLBARS: ToolbarNames[] = [
 const draft = ref('')
 const errorMessage = ref('')
 const replyTarget = ref<BugComment | null>(null)
+const attachmentInput = ref<HTMLInputElement | null>(null)
+const pendingAttachments = ref<File[]>([])
 // 评论在详情中可能很多，默认收起，用户主动展开后再阅读或参与讨论。
 const commentsExpanded = ref(false)
 // 每条父评论单独维护折叠状态，收起子回复不会影响其他讨论线程。
@@ -94,6 +96,7 @@ watch(
   (bugId) => {
     draft.value = ''
     replyTarget.value = null
+    pendingAttachments.value = []
     errorMessage.value = ''
     commentsExpanded.value = false
     collapsedParentIds.value = new Set()
@@ -176,6 +179,32 @@ function cancelReply(): void {
   replyTarget.value = null
 }
 
+/** 打开评论附件选择框；文件会等评论记录创建成功后再绑定，避免产生孤立附件。 */
+function pickAttachments(): void {
+  attachmentInput.value?.click()
+}
+
+/** 校验并暂存评论附件，数量限制与服务端单 Bug 附件上限保持一致。 */
+function handleAttachmentsPicked(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  input.value = ''
+  const existingCount = bugStore.current?.attachments.length ?? 0
+  for (const file of files) {
+    const reason = attachmentValidationError(file, existingCount + pendingAttachments.value.length)
+    if (reason) {
+      errorMessage.value = reason
+      continue
+    }
+    pendingAttachments.value.push(file)
+  }
+}
+
+/** 移除尚未写入服务端的评论附件草稿。 */
+function removeAttachment(index: number): void {
+  pendingAttachments.value.splice(index, 1)
+}
+
 /** 根据是否存在回复目标调用顶级评论或一级回复接口；成功后由 Store 刷新当前列表。 */
 async function submitComment(): Promise<void> {
   const content = draft.value.trim()
@@ -184,13 +213,27 @@ async function submitComment(): Promise<void> {
     return
   }
   try {
-    if (replyTarget.value) {
-      await bugStore.replyToComment(props.bugId, replyTarget.value.commentId, content)
-    } else {
-      await bugStore.addComment(props.bugId, content)
+    const comment = replyTarget.value
+      ? await bugStore.replyToComment(props.bugId, replyTarget.value.commentId, content)
+      : await bugStore.addComment(props.bugId, content)
+    const failed: string[] = []
+    // 评论先落库才能得到可靠的 bizId；逐个上传可让单文件失败不影响已发布的讨论内容。
+    for (const file of pendingAttachments.value) {
+      try {
+        await bugStore.uploadAttachment(props.bugId, file, {
+          bizType: 'COMMENT',
+          bizId: comment.commentId,
+        })
+      } catch {
+        failed.push(file.name)
+      }
+    }
+    if (failed.length) {
+      errorMessage.value = `评论已发布，但附件上传失败：${failed.join('、')}`
     }
     draft.value = ''
     replyTarget.value = null
+    pendingAttachments.value = []
   } catch (error) {
     errorMessage.value = isApiError(error) ? error.message : '发表评论失败，请稍后重试'
   }
@@ -237,6 +280,14 @@ async function loadMore(): Promise<void> {
 
     <div v-show="commentsExpanded" id="bug-comments">
       <div v-if="writable" class="comment-composer">
+        <input
+          ref="attachmentInput"
+          class="comment-composer__attachment-input"
+          type="file"
+          multiple
+          :accept="ATTACHMENT_ACCEPT"
+          @change="handleAttachmentsPicked"
+        />
         <div v-if="replyTarget" class="comment-composer__replying">
           <span>回复 @{{ replyTarget.displayName || replyTarget.username }}</span>
           <button type="button" @click="cancelReply">取消回复</button>
@@ -249,6 +300,15 @@ async function loadMore(): Promise<void> {
           :style="{ height: '126px' }"
         />
         <div class="comment-composer__footer">
+          <div class="comment-composer__attachments">
+            <el-button text type="primary" :disabled="bugStore.submitting" @click="pickAttachments">附加文件</el-button>
+            <span v-if="pendingAttachments.length" class="comment-composer__attachment-names">
+              <span v-for="(file, index) in pendingAttachments" :key="file.name + index">
+                {{ file.name }}（{{ formatFileSize(file.size) }}）
+                <button type="button" :aria-label="`移除 ${file.name}`" @click="removeAttachment(index)">×</button>
+              </span>
+            </span>
+          </div>
           <el-button type="primary" :loading="bugStore.submitting" @click="submitComment">
             {{ replyTarget ? '发布回复' : '发表评论' }}
           </el-button>
@@ -435,10 +495,55 @@ async function loadMore(): Promise<void> {
   min-height: 126px;
 }
 
+.comment-composer__attachment-input {
+  display: none;
+}
+
 .comment-composer__footer {
   display: flex;
+  align-items: center;
+  gap: 12px;
   justify-content: flex-end;
   margin-top: 10px;
+}
+
+.comment-composer__attachments {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+}
+
+.comment-composer__attachment-names {
+  display: flex;
+  min-width: 0;
+  gap: 6px;
+  overflow: auto;
+}
+
+.comment-composer__attachment-names > span {
+  display: inline-flex;
+  align-items: center;
+  max-width: 230px;
+  padding: 3px 7px;
+  overflow: hidden;
+  color: var(--bl-text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--bl-control-bg);
+  border: 1px solid var(--bl-border);
+  border-radius: 5px;
+}
+
+.comment-composer__attachment-names button {
+  padding: 0 0 0 5px;
+  color: var(--bl-muted);
+  font: inherit;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
 }
 
 .comment-item {
