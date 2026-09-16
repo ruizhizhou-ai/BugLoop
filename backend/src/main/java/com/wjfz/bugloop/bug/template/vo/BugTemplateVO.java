@@ -5,6 +5,7 @@
 package com.wjfz.bugloop.bug.template.vo;
 
 import com.wjfz.bugloop.bug.entity.BugPriority;
+import com.wjfz.bugloop.bug.template.entity.BugTemplate;
 
 import java.time.LocalDateTime;
 
@@ -35,4 +36,16 @@ public record BugTemplateVO(
         Integer sortOrder,
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {
+
+    /**
+     * 将已通过归属校验的模板实体转换为接口响应，避免向客户端暴露内部逻辑删除标记。
+     *
+     * @param template Bug 个人模板实体
+     * @return 模板响应对象
+     */
+    public static BugTemplateVO from(BugTemplate template) {
+        return new BugTemplateVO(template.getId(), template.getWorkspaceId(), template.getCreatorId(),
+                template.getName(), template.getTitle(), template.getDescriptionMd(), template.getPriority(),
+                template.getSourceBugId(), template.getSortOrder(), template.getCreatedAt(), template.getUpdatedAt());
+    }
 }
