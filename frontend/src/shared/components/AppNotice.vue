@@ -4,10 +4,17 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 import AppIcon from './AppIcon.vue'
 
-/** 错误提示自动消失的时间：足够读完一句话，又不长期遮挡页面。 */
+/** 提示自动消失的时间：足够读完一句话，又不长期遮挡页面。 */
 const AUTO_CLOSE_DELAY = 3000
 
-const props = defineProps<{ message: string }>()
+const props = withDefaults(
+  defineProps<{
+    message: string
+    /** 提示语义配色，默认错误；成功提示用于复制链接等无页面状态变化的操作。 */
+    tone?: 'danger' | 'success'
+  }>(),
+  { tone: 'danger' },
+)
 const emit = defineEmits<{ close: [] }>()
 
 const visible = ref(true)
@@ -30,8 +37,13 @@ onBeforeUnmount(() => window.clearTimeout(timer))
 <template>
   <!-- 淡出动画播完再通知父级移除，避免提示被瞬间抽走。 -->
   <Transition name="app-notice" appear @after-leave="emit('close')">
-    <div v-if="visible" class="app-notice" role="alert">
-      <AppIcon name="alert" :size="18" />
+    <div
+      v-if="visible"
+      class="app-notice"
+      :class="`app-notice--${tone}`"
+      :role="tone === 'success' ? 'status' : 'alert'"
+    >
+      <AppIcon :name="tone === 'success' ? 'check' : 'alert'" :size="18" />
       <span class="app-notice__text">{{ message }}</span>
       <button
         type="button"
@@ -64,6 +76,12 @@ onBeforeUnmount(() => window.clearTimeout(timer))
   border-radius: 10px;
   box-shadow: var(--bl-overlay-shadow);
   transform: translate(-50%, -50%);
+}
+
+.app-notice--success {
+  color: var(--el-color-success);
+  background: var(--el-color-success-light-9);
+  border-color: var(--el-color-success-light-7);
 }
 
 .app-notice-enter-active,

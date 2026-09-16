@@ -2,7 +2,7 @@
  * 本文件验证 Bug 详情页按角色与状态显示操作按钮，并遵守关闭后只读规则。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { nextTick } from 'vue'
+import { defineComponent, h, inject, nextTick, provide } from 'vue'
 
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -19,7 +19,13 @@ import type {
 
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { workspaceId: '1', bugId: '101' } }),
-  useRouter: () => ({ push: vi.fn<(location: unknown) => void>() }),
+  useRouter: () => ({
+    push: vi.fn<(location: unknown) => void>(),
+    // 复制链接依赖 resolve 生成独立详情页地址，Mock 只还原路径拼接结果。
+    resolve: (location: { params: Record<string, string | number> }) => ({
+      href: `/workspaces/${location.params.workspaceId}/bugs/${location.params.bugId}`,
+    }),
+  }),
 }))
 
 const CURRENT_USER = { id: 10, username: 'owner', displayName: '张三', systemRole: 'USER' as const }
@@ -149,6 +155,57 @@ const BUG_BASE: BugDetail = {
   latestAcceptance: null,
 }
 
+/**
+ * 下拉菜单真实实现依赖挂在 body 上的浮层，这里用最小桩还原“点击菜单项派发 command”的关键行为。
+ */
+const DROPDOWN_COMMAND = Symbol('dropdown-command')
+
+const ElDropdownStub = defineComponent({
+  name: 'ElDropdown',
+  emits: ['command'],
+  setup(_props, { slots, emit }) {
+    provide(DROPDOWN_COMMAND, (command: unknown) => emit('command', command))
+    return () => h('div', { class: 'dropdown-stub' }, [slots.default?.(), slots.dropdown?.()])
+  },
+})
+
+const ElDropdownMenuStub = defineComponent({
+  name: 'ElDropdownMenu',
+  setup(_props, { slots }) {
+    return () => h('div', { class: 'dropdown-menu-stub' }, slots.default?.())
+  },
+})
+
+const ElDropdownItemStub = defineComponent({
+  name: 'ElDropdownItem',
+  props: { command: { type: [String, Number, Object], default: undefined } },
+  setup(props, { slots }) {
+    const dispatch = inject<(command: unknown) => void>(DROPDOWN_COMMAND, () => {})
+    return () =>
+      h(
+        'button',
+        { class: 'dropdown-item-stub', onClick: () => dispatch(props.command) },
+        slots.default?.(),
+      )
+  },
+})
+
+/** 模板弹窗由独立测试覆盖，这里只校验入口是否带着当前 Bug 内容打开它。 */
+const BugTemplateDialogStub = defineComponent({
+  name: 'BugTemplateDialog',
+  props: ['modelValue', 'bugId', 'sourceTitle', 'sourceDescriptionMd', 'sourcePriority'],
+  template: `
+    <div
+      v-if="modelValue"
+      class="template-dialog-stub"
+      :data-bug-id="bugId"
+      :data-title="sourceTitle"
+      :data-description="sourceDescriptionMd"
+      :data-priority="sourcePriority"
+    />
+  `,
+})
+
 const stubs = {
   ElAlert: { props: ['title'], template: '<div class="alert-stub">{{ title }}<slot /></div>' },
   ElCard: { template: '<section><slot name="header" /><slot /></section>' },
@@ -176,7 +233,11 @@ const stubs = {
   ElForm: { template: '<form @submit.prevent="$emit(\'submit\')"><slot /></form>' },
   ElFormItem: { template: '<label><slot /></label>' },
   AppIcon: { template: '<span class="app-icon-stub" />' },
+  ElDropdown: ElDropdownStub,
+  ElDropdownMenu: ElDropdownMenuStub,
+  ElDropdownItem: ElDropdownItemStub,
   BugCommentPanel: true,
+  BugTemplateDialog: BugTemplateDialogStub,
 }
 
 async function mountDetail(bug: BugDetail, props: Record<string, unknown> = {}) {
@@ -267,7 +328,7 @@ describe('BugDetailView', () => {
     expect(wrapper.text()).not.toContain('提交验收')
     expect(wrapper.text()).not.toContain('验收通过')
     // 创建者仍可编辑基础信息
-    expect(wrapper.text()).toContain('编辑信息')
+    expect(wrapper.text()).toContain('编辑 Bug')
   })
 
   it('待验收且当前用户是验收人时应显示验收通过与驳回', async () => {
@@ -289,7 +350,7 @@ describe('BugDetailView', () => {
     expect(wrapper.text()).not.toContain('编辑修复说明')
     expect(wrapper.text()).not.toContain('提交验收')
     expect(wrapper.text()).not.toContain('验收通过')
-    expect(wrapper.text()).not.toContain('编辑信息')
+    expect(wrapper.text()).not.toContain('编辑 Bug')
   })
 
   it('旧版本保存冲突时应先刷新最新内容再提示', async () => {
@@ -299,7 +360,7 @@ describe('BugDetailView', () => {
     const wrapper = await mountDetail({ ...BUG_BASE, assigneeId: CURRENT_USER.id })
     const editButton = wrapper
       .findAll('button')
-      .find((button) => button.text().includes('编辑信息'))
+      .find((button) => button.text().includes('编辑 Bug'))
     await editButton?.trigger('click')
     await nextTick()
 
@@ -456,5 +517,66 @@ describe('BugDetailView', () => {
     expect(toggle.attributes('aria-expanded')).toBe('true')
     expect(contentElement.style.display).not.toBe('none')
     expect(wrapper.text()).toContain('console-error.png')
+  })
+
+  it('创建者点击“存为模板”应带着当前 Bug 内容打开弹窗', async () => {
+    const wrapper = await mountDetail(BUG_BASE)
+
+    const menuItem = wrapper.findAll('button').find((button) => button.text().includes('存为模板'))
+    expect(menuItem).toBeDefined()
+    await menuItem?.trigger('click')
+    await nextTick()
+
+    const dialog = wrapper.find('.template-dialog-stub')
+    expect(dialog.exists()).toBe(true)
+    expect(dialog.attributes('data-bug-id')).toBe('101')
+    expect(dialog.attributes('data-title')).toBe(BUG_BASE.title)
+    expect(dialog.attributes('data-description')).toBe(BUG_BASE.descriptionMd)
+    expect(dialog.attributes('data-priority')).toBe(BUG_BASE.priority)
+  })
+
+  it('非创建者的普通成员应隐藏“存为模板”入口', async () => {
+    const wrapper = await mountDetail({ ...BUG_BASE, creatorId: 99 })
+
+    expect(wrapper.text()).not.toContain('存为模板')
+    expect(wrapper.text()).toContain('复制链接')
+  })
+
+  it('空间管理员应看到“存为模板”入口', async () => {
+    const wrapper = await mountDetail({
+      ...BUG_BASE,
+      creatorId: 99,
+      workspace: { ...BUG_BASE.workspace, currentUserRole: 'OWNER' },
+    })
+
+    expect(wrapper.text()).toContain('存为模板')
+  })
+
+  it('停用空间的 Bug 应隐藏“存为模板”入口', async () => {
+    const wrapper = await mountDetail({
+      ...BUG_BASE,
+      workspace: { ...BUG_BASE.workspace, status: 'DISABLED' },
+    })
+
+    expect(wrapper.text()).not.toContain('存为模板')
+  })
+
+  it('复制链接应写入当前 Bug 的详情页地址并提示已复制', async () => {
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    try {
+      const wrapper = await mountDetail(BUG_BASE)
+
+      const menuItem = wrapper
+        .findAll('button')
+        .find((button) => button.text().includes('复制链接'))
+      await menuItem?.trigger('click')
+      await flushPromises()
+
+      expect(writeText).toHaveBeenCalledWith('http://localhost:3000/workspaces/1/bugs/101')
+      expect(wrapper.text()).toContain('链接已复制')
+    } finally {
+      Reflect.deleteProperty(navigator, 'clipboard')
+    }
   })
 })

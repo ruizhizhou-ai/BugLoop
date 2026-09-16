@@ -6,6 +6,9 @@ import {
   ElButton,
   ElCard,
   ElDialog,
+  ElDropdown,
+  ElDropdownItem,
+  ElDropdownMenu,
   ElEmpty,
   ElForm,
   ElFormItem,
@@ -20,6 +23,9 @@ import {
 import 'element-plus/es/components/button/style/css'
 import 'element-plus/es/components/card/style/css'
 import 'element-plus/es/components/dialog/style/css'
+import 'element-plus/es/components/dropdown/style/css'
+import 'element-plus/es/components/dropdown-item/style/css'
+import 'element-plus/es/components/dropdown-menu/style/css'
 import 'element-plus/es/components/empty/style/css'
 import 'element-plus/es/components/form/style/css'
 import 'element-plus/es/components/form-item/style/css'
@@ -37,6 +43,7 @@ import 'md-editor-v3/lib/style.css'
 
 import { useBugStore } from './bugStore'
 import BugCommentPanel from './BugCommentPanel.vue'
+import BugTemplateDialog from './BugTemplateDialog.vue'
 import {
   ATTACHMENT_ACCEPT,
   BUG_PRIORITY_OPTIONS,
@@ -78,6 +85,8 @@ const auth = useAuthStore()
 const workspaceStore = useWorkspaceStore()
 
 const errorMessage = ref('')
+const successMessage = ref('')
+const templateDialogVisible = ref(false)
 const acceptDialogVisible = ref(false)
 const acceptMode = ref<'accept' | 'reject'>('accept')
 const fixDialogVisible = ref(false)
@@ -170,6 +179,8 @@ const canChangeAcceptor = computed(
 const canEditBasic = computed(
   () => mutable.value && (isManager.value || isCreator.value) && bug.value?.status !== 'CLOSED',
 )
+// 与后端权限一致：管理员可保存空间内任意 Bug，普通成员只能保存自己创建的 Bug；停用空间一律不允许。
+const canSaveAsTemplate = computed(() => mutable.value && (isCreator.value || isManager.value))
 const canWriteAttachments = computed(() => mutable.value && bug.value?.status !== 'CLOSED')
 /** 按来源固定排序全部附件，使提单、验收和评论证据不会混在同一列表中。 */
 const attachmentGroups = computed(() => {
@@ -383,6 +394,61 @@ async function handleUpdateBasic(): Promise<void> {
   }
 }
 
+/** 更多操作菜单分发；菜单项已按权限过滤，命令名与模板中的 command 一一对应。 */
+async function handleMoreCommand(command: string | number | object): Promise<void> {
+  if (command === 'edit') {
+    openInfoDialog()
+    return
+  }
+  if (command === 'copy-link') {
+    await handleCopyLink()
+    return
+  }
+  if (command === 'save-as-template') {
+    templateDialogVisible.value = true
+  }
+}
+
+/** 复制当前 Bug 的详情页链接；抽屉与独立页都分享同一个可直达地址。 */
+async function handleCopyLink(): Promise<void> {
+  const href = router.resolve({
+    name: 'bug-detail',
+    params: { workspaceId: workspaceId.value, bugId: resolvedBugId.value },
+  }).href
+  errorMessage.value = ''
+  successMessage.value = ''
+  try {
+    await copyText(new URL(href, window.location.origin).toString())
+    successMessage.value = '链接已复制'
+  } catch {
+    errorMessage.value = '复制链接失败，请从地址栏手动复制'
+  }
+}
+
+/** 优先使用 Clipboard API；HTTP 部署下浏览器不提供该能力时退回临时文本域复制。 */
+async function copyText(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return
+    } catch {
+      // 剪贴板权限被拒绝时继续尝试兼容方案，而不是直接判定复制失败。
+    }
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.setAttribute('readonly', '')
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  document.body.appendChild(textarea)
+  textarea.select()
+  const copied = document.execCommand('copy')
+  textarea.remove()
+  if (!copied) {
+    throw new Error('复制失败')
+  }
+}
+
 function openPersonDialog(assignee: boolean): void {
   if (!bug.value || (assignee ? !canAssign.value : !canChangeAcceptor.value)) {
     return
@@ -528,6 +594,12 @@ onBeforeUnmount(clearImagePreviewUrl)
     :class="{ 'bug-detail--drawer': drawerMode }"
   >
     <app-notice v-if="errorMessage" :message="errorMessage" @close="errorMessage = ''" />
+    <app-notice
+      v-if="successMessage"
+      tone="success"
+      :message="successMessage"
+      @close="successMessage = ''"
+    />
 
     <div v-if="bugStore.detailLoading" class="bug-detail__loading" aria-label="正在加载详情" />
 
@@ -596,7 +668,21 @@ onBeforeUnmount(clearImagePreviewUrl)
             <el-button v-if="canChangeAcceptor" @click="openPersonDialog(false)"
               >修改验收人</el-button
             >
-            <el-button v-if="canEditBasic" @click="openInfoDialog">编辑信息</el-button>
+            <el-dropdown class="bug-detail__more" trigger="click" @command="handleMoreCommand">
+              <el-button>
+                更多操作
+                <AppIcon name="chevron-down" :size="15" />
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item v-if="canEditBasic" command="edit">编辑 Bug</el-dropdown-item>
+                  <el-dropdown-item command="copy-link">复制链接</el-dropdown-item>
+                  <el-dropdown-item v-if="canSaveAsTemplate" command="save-as-template">
+                    存为模板
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
             <el-button v-if="!drawerMode" @click="goBack">返回列表</el-button>
           </div>
         </div>
@@ -1053,6 +1139,14 @@ onBeforeUnmount(clearImagePreviewUrl)
       </template>
     </el-dialog>
 
+    <BugTemplateDialog
+      v-model="templateDialogVisible"
+      :bug-id="resolvedBugId"
+      :source-title="bug?.title ?? ''"
+      :source-description-md="bug?.descriptionMd ?? ''"
+      :source-priority="bug?.priority ?? 'P2'"
+    />
+
     <el-dialog v-model="historyDialogVisible" title="历史版本" width="min(92vw, 860px)">
       <template v-if="bugStore.historyDetail">
         <p class="history-dialog__meta">
@@ -1138,6 +1232,13 @@ onBeforeUnmount(clearImagePreviewUrl)
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+/* 图标默认是块级，放进按钮后需转为行内并微调基线才不会把文字挤到第二行。 */
+.bug-detail__more :deep(.app-icon) {
+  display: inline-block;
+  margin-left: 4px;
+  vertical-align: -3px;
 }
 
 .bug-detail__meta {
