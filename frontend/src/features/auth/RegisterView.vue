@@ -95,7 +95,7 @@ async function handleSubmit(): Promise<void> {
       <template #header>
         <div class="auth-card__header">
           <h1>注册 BugLoop 账号</h1>
-          <span>首个注册的用户将自动成为系统管理员</span>
+          <span>注册后请联系系统管理员将你加入工作空间</span>
         </div>
       </template>
 

@@ -85,15 +85,6 @@ public class UserService {
     }
 
     /**
-     * 统计系统用户总数，用于判断是否需要引导首个管理员。
-     *
-     * @return 用户总数
-     */
-    public long countUsers() {
-        return userMapper.selectCount(null);
-    }
-
-    /**
      * 更新用户资料，当前用于启用 / 停用账号，调用方负责完成权限校验。
      *
      * @param user 待更新的用户实体

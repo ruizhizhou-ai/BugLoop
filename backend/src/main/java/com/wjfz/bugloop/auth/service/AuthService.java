@@ -9,7 +9,6 @@ import com.wjfz.bugloop.auth.dto.LoginRequest;
 import com.wjfz.bugloop.auth.dto.RegisterRequest;
 import com.wjfz.bugloop.auth.vo.LoginResponse;
 import com.wjfz.bugloop.common.exception.BusinessException;
-import com.wjfz.bugloop.config.AdminBootstrapProperties;
 import com.wjfz.bugloop.user.entity.User;
 import com.wjfz.bugloop.user.service.UserAccountService;
 import com.wjfz.bugloop.user.service.UserService;
@@ -24,22 +23,19 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class AuthService {
 
-    private static final String ROLE_SYSTEM_ADMIN = "SYSTEM_ADMIN";
     private static final String ROLE_USER = "USER";
 
     private final UserService userService;
     private final UserAccountService accountService;
-    private final AdminBootstrapProperties adminBootstrapProperties;
 
-    public AuthService(UserService userService, UserAccountService accountService,
-                       AdminBootstrapProperties adminBootstrapProperties) {
+    public AuthService(UserService userService, UserAccountService accountService) {
         this.userService = userService;
         this.accountService = accountService;
-        this.adminBootstrapProperties = adminBootstrapProperties;
     }
 
     /**
-     * 注册新用户并直接建立登录会话。
+     * 注册新用户并直接建立登录会话。自助注册一律是普通用户，
+     * 系统管理员由内置账号初始化或管理员创建提供。
      *
      * @param request 注册请求，参数校验已由 Controller 完成
      * @return 登录结果，包含 token 与用户信息
@@ -47,7 +43,7 @@ public class AuthService {
     @Transactional
     public LoginResponse register(RegisterRequest request) {
         User user = accountService.create(
-                request.username(), request.displayName(), request.password(), resolveRegisterRole());
+                request.username(), request.displayName(), request.password(), ROLE_USER);
 
         StpUtil.login(user.getId());
         return new LoginResponse(StpUtil.getTokenValue(), UserVO.from(user));
@@ -78,11 +74,6 @@ public class AuthService {
      */
     public void logout() {
         StpUtil.logout();
-    }
-
-    private String resolveRegisterRole() {
-        boolean firstUser = userService.countUsers() == 0;
-        return firstUser && adminBootstrapProperties.isBootstrapEnabled() ? ROLE_SYSTEM_ADMIN : ROLE_USER;
     }
 
     private BusinessException credentialsError() {

@@ -54,7 +54,7 @@ class WorkspaceControllerTest {
 
     @Test
     void 创建后应成为Owner并能在列表和详情中切换() throws Exception {
-        Session systemAdmin = register("system_admin");
+        Session systemAdmin = registerSystemAdmin("system_admin");
         Session owner = register("owner");
 
         long workspaceId = createWorkspaceAsManager(systemAdmin, owner, " 研发中心 ");
@@ -88,7 +88,7 @@ class WorkspaceControllerTest {
 
     @Test
     void 成员管理应校验重复关系和角色权限() throws Exception {
-        Session systemAdmin = register("system_admin");
+        Session systemAdmin = registerSystemAdmin("system_admin");
         Session owner = register("owner");
         Session member = register("member");
         Session another = register("another");
@@ -132,7 +132,7 @@ class WorkspaceControllerTest {
 
     @Test
     void 成员管理者可搜索未加入空间的启用用户() throws Exception {
-        Session systemAdmin = register("system_admin");
+        Session systemAdmin = registerSystemAdmin("system_admin");
         Session owner = register("owner");
         Session joinedCandidate = register("candidate_joined");
         Session availableCandidate = register("candidate_available");
@@ -162,7 +162,7 @@ class WorkspaceControllerTest {
 
     @Test
     void 非成员不能访问但SystemAdmin可以处理异常空间() throws Exception {
-        Session systemAdmin = register("system_admin");
+        Session systemAdmin = registerSystemAdmin("system_admin");
         Session owner = register("owner");
         Session outsider = register("outsider");
         long workspaceId = createWorkspaceAsManager(systemAdmin, owner, "隔离空间");
@@ -180,7 +180,7 @@ class WorkspaceControllerTest {
 
     @Test
     void 最后一个Owner不能降级且主要负责人应随Owner转移() throws Exception {
-        Session systemAdmin = register("system_admin");
+        Session systemAdmin = registerSystemAdmin("system_admin");
         Session owner = register("owner");
         Session nextOwner = register("next_owner");
         long workspaceId = createWorkspaceAsManager(systemAdmin, owner, "Owner 规则");
@@ -202,7 +202,7 @@ class WorkspaceControllerTest {
 
     @Test
     void 停用后应只读且授权角色可重新启用并恢复成员变更() throws Exception {
-        Session systemAdmin = register("system_admin");
+        Session systemAdmin = registerSystemAdmin("system_admin");
         Session owner = register("owner");
         Session admin = register("admin");
         Session newMember = register("new_member");
@@ -252,7 +252,7 @@ class WorkspaceControllerTest {
 
     @Test
     void 承担未关闭Bug责任的成员不能移除() throws Exception {
-        Session systemAdmin = register("system_admin");
+        Session systemAdmin = registerSystemAdmin("system_admin");
         Session owner = register("owner");
         Session member = register("member");
         long workspaceId = createWorkspaceAsManager(systemAdmin, owner, "Bug 责任空间");
@@ -275,7 +275,7 @@ class WorkspaceControllerTest {
 
     @Test
     void 创建工作空间应按角色校验且成员不能创建() throws Exception {
-        Session systemAdmin = register("system_admin");
+        Session systemAdmin = registerSystemAdmin("system_admin");
         Session owner = register("owner");
         Session member = register("member");
         Session unassigned = register("unassigned");
@@ -311,7 +311,7 @@ class WorkspaceControllerTest {
 
     @Test
     void 非法角色应返回参数错误而不是系统异常() throws Exception {
-        Session systemAdmin = register("system_admin");
+        Session systemAdmin = registerSystemAdmin("system_admin");
         Session owner = register("owner");
         Session member = register("member");
         long workspaceId = createWorkspaceAsManager(systemAdmin, owner, "参数校验空间");
@@ -319,6 +319,13 @@ class WorkspaceControllerTest {
         addMember(owner.token(), workspaceId, member.userId(), "SUPER_ADMIN")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(40001));
+    }
+
+    /** 注册账号并提升为 SYSTEM_ADMIN；管理员由内置初始化提供，不再由首个注册用户自动获得。 */
+    private Session registerSystemAdmin(String username) throws Exception {
+        Session session = register(username);
+        jdbcTemplate.update("UPDATE sys_user SET system_role = 'SYSTEM_ADMIN' WHERE id = ?", session.userId());
+        return session;
     }
 
     private Session register(String username) throws Exception {

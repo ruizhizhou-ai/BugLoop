@@ -39,7 +39,7 @@ class WorkspaceFlowIT extends AbstractMysqlIntegrationTest {
 
     @Test
     void 工作空间主链路应在真实MySQL上保持事务一致() throws Exception {
-        Session systemAdmin = register("system_admin");
+        Session systemAdmin = registerSystemAdmin("system_admin");
         Session owner = register("mysql_owner");
         Session member = register("mysql_member");
 
@@ -106,6 +106,13 @@ class WorkspaceFlowIT extends AbstractMysqlIntegrationTest {
                 "SELECT COUNT(*) FROM workspace_operation_log WHERE workspace_id = ?", Integer.class, workspaceId);
         assertThat(memberCount).isEqualTo(2);
         assertThat(logCount).isEqualTo(7);
+    }
+
+    /** 注册账号并提升为 SYSTEM_ADMIN；管理员由内置初始化提供，不再由首个注册用户自动获得。 */
+    private Session registerSystemAdmin(String username) throws Exception {
+        Session session = register(username);
+        jdbcTemplate.update("UPDATE sys_user SET system_role = 'SYSTEM_ADMIN' WHERE id = ?", session.userId());
+        return session;
     }
 
     private Session register(String username) throws Exception {

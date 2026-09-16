@@ -53,7 +53,7 @@ public class BugControllerTest {
                 "workspace", "sys_user")) {
             jdbc.update("DELETE FROM " + table);
         }
-        systemAdmin = register("sysadmin");
+        systemAdmin = registerSystemAdmin("sysadmin");
         owner = register("owner");
         developer = register("developer");
         tester = register("tester");
@@ -574,6 +574,13 @@ public class BugControllerTest {
         assertThat(bugs.selectById(id).getClosedAt()).isNull();
         assertThat(count("bug_operation_log", id)).isEqualTo(logs);
         assertThat(count("bug_acceptance", id)).isZero();
+    }
+
+    /** 注册账号并提升为 SYSTEM_ADMIN；管理员由内置初始化提供，不再由首个注册用户自动获得。 */
+    private Session registerSystemAdmin(String username) throws Exception {
+        Session session = register(username);
+        jdbc.update("UPDATE sys_user SET system_role = 'SYSTEM_ADMIN' WHERE id = ?", session.id());
+        return session;
     }
 
     /** 注册测试用户并保留真实 Token，测试不绕过认证拦截器。 */

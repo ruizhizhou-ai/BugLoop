@@ -72,7 +72,8 @@ pnpm dev
 
 - 登录方式为用户名 + 密码，密码使用 BCrypt 哈希保存。
 - 登录凭证通过 `Authorization: Bearer <token>` 请求头传递，一段时间不活跃后需要重新登录。
-- 注册默认角色为 `USER`；`sys_user` 为空且开启 `BUGLOOP_ADMIN_BOOTSTRAP_ENABLED` 时，第一个注册用户自动成为 `SYSTEM_ADMIN`。
+- 注册默认角色为 `USER`；开启 `BUGLOOP_ADMIN_BOOTSTRAP_ENABLED` 时，应用启动会创建内置系统管理员
+  （默认 `admin` / `admin@123`，可用 `BUGLOOP_ADMIN_USERNAME`、`BUGLOOP_ADMIN_PASSWORD` 覆盖）。
 - 未登录或凭证失效统一返回 `401 + 40101`，错误码定义见 [API Spec](docs/05-api-spec.md)。
 
 ## 验证命令

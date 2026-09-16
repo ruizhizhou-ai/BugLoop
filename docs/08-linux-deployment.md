@@ -49,9 +49,13 @@ chmod +x scripts/deploy-linux.sh
 
 ## 三、初始化管理员
 
-全新数据库中，`BUGLOOP_ADMIN_BOOTSTRAP_ENABLED=true` 时首个成功注册的账号会成为 `SYSTEM_ADMIN`。首次部署建议先限制 Web 端口只允许管理员来源 IP 访问，完成第一个账号注册后把该变量改为 `false`，再执行一次部署脚本。
+`BUGLOOP_ADMIN_BOOTSTRAP_ENABLED=true`（默认）时，后端启动会自动创建内置系统管理员：
+用户名与初始密码取自 `BUGLOOP_ADMIN_USERNAME` / `BUGLOOP_ADMIN_PASSWORD`（默认 `admin` / `admin@123`）。
+账号已存在时跳过，重复部署不会重复创建，也不会覆盖已经修改过的密码。
 
-不要在系统尚未初始化时直接向公网开放注册页面，否则可能被他人抢先注册为系统管理员。
+建议首次部署前就先把 `.env.production` 里的 `BUGLOOP_ADMIN_PASSWORD` 改成强密码；
+配置只在账号首次创建时生效，账号创建后再改这个变量不会同步密码，需要重置时先删除该账号再重新部署。
+注册页开放的是普通用户自助注册，不会再产生系统管理员。
 
 ## 四、HTTPS 与域名
 

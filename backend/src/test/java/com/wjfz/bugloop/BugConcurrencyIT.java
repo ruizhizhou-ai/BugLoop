@@ -43,6 +43,8 @@ class BugConcurrencyIT extends AbstractMysqlIntegrationTest {
         cleanData();
 
         ownerId = register("owner");
+        // 空间创建收紧为 SYSTEM_ADMIN / 既有 OWNER 后，测试用 owner 先取得平台管理员身份。
+        jdbcTemplate.update("UPDATE sys_user SET system_role = 'SYSTEM_ADMIN' WHERE id = ?", ownerId);
         assigneeId = register("assignee");
         acceptorId = register("acceptor");
         adminId = register("space_admin");

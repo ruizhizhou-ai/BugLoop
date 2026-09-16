@@ -48,7 +48,7 @@ class AuthControllerTest {
     }
 
     @Test
-    void 注册成功时返回登录凭证与首要管理员角色() throws Exception {
+    void 注册成功时返回登录凭证与普通用户角色() throws Exception {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(REGISTER_BODY))
@@ -57,11 +57,12 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.token").isNotEmpty())
                 .andExpect(jsonPath("$.data.user.username").value("zhangsan"))
                 .andExpect(jsonPath("$.data.user.displayName").value("张三"))
-                .andExpect(jsonPath("$.data.user.systemRole").value("SYSTEM_ADMIN"));
+                // 管理员由内置初始化提供，自助注册不再产生 SYSTEM_ADMIN。
+                .andExpect(jsonPath("$.data.user.systemRole").value("USER"));
     }
 
     @Test
-    void 第二个注册用户默认为普通角色() throws Exception {
+    void 后续注册用户同样默认为普通角色() throws Exception {
         registerAndGetToken("zhangsan");
 
         mockMvc.perform(post("/api/auth/register")

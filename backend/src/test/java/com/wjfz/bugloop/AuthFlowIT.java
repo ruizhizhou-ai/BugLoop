@@ -30,7 +30,8 @@ class AuthFlowIT extends AbstractMysqlIntegrationTest {
                                 {"username": "mysql_user", "displayName": "真库用户", "password": "bugloop123"}
                                 """))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.user.systemRole").value("SYSTEM_ADMIN"));
+                // 内置管理员初始化后，自助注册一律是普通用户。
+                .andExpect(jsonPath("$.data.user.systemRole").value("USER"));
 
         String loginBody = mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)

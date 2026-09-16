@@ -44,7 +44,7 @@ class UserControllerTest {
 
     @Test
     void 系统管理员创建普通用户且保持当前会话() throws Exception {
-        Session systemAdmin = register("system_admin");
+        Session systemAdmin = registerSystemAdmin("system_admin");
 
         mockMvc.perform(post("/api/users")
                         .header("Authorization", bearer(systemAdmin.token()))
@@ -71,7 +71,6 @@ class UserControllerTest {
 
     @Test
     void 普通用户不能查询或创建系统用户() throws Exception {
-        register("system_admin");
         Session ordinaryUser = register("ordinary_user");
 
         mockMvc.perform(get("/api/users")
@@ -91,7 +90,7 @@ class UserControllerTest {
 
     @Test
     void 用户列表和创建参数应遵循统一契约() throws Exception {
-        Session systemAdmin = register("system_admin");
+        Session systemAdmin = registerSystemAdmin("system_admin");
         register("existing_user");
 
         mockMvc.perform(get("/api/users")
@@ -121,7 +120,7 @@ class UserControllerTest {
 
     @Test
     void 停用普通用户后禁止登录且在线会话立即失效() throws Exception {
-        Session systemAdmin = register("system_admin");
+        Session systemAdmin = registerSystemAdmin("system_admin");
         Session target = register("target_user");
 
         mockMvc.perform(post("/api/users/{id}/disable", target.userId())
@@ -151,7 +150,7 @@ class UserControllerTest {
 
     @Test
     void 停用启用应遵守权限与状态边界() throws Exception {
-        Session systemAdmin = register("system_admin");
+        Session systemAdmin = registerSystemAdmin("system_admin");
         Session ordinaryUser = register("ordinary_user");
         Session target = register("target_user");
 
@@ -186,6 +185,13 @@ class UserControllerTest {
                         .header("Authorization", bearer(systemAdmin.token())))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value(40901));
+    }
+
+    /** 注册账号并提升为 SYSTEM_ADMIN；管理员由内置初始化提供，不再由首个注册用户自动获得。 */
+    private Session registerSystemAdmin(String username) throws Exception {
+        Session session = register(username);
+        jdbcTemplate.update("UPDATE sys_user SET system_role = 'SYSTEM_ADMIN' WHERE id = ?", session.userId());
+        return session;
     }
 
     /** 以初始密码登录指定账号，用于验证停用与启用对登录能力的影响。 */

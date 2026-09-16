@@ -41,6 +41,8 @@ bugloop:
   storage:
     root: ${BUGLOOP_STORAGE_ROOT:../data/attachments}
   admin:
-    # 开启后，sys_user 为空时第一个注册成功的用户自动成为 SYSTEM_ADMIN。
+    # 开启后启动时自动创建内置系统管理员；账号已存在时跳过，可重复启动。
     bootstrap-enabled: ${BUGLOOP_ADMIN_BOOTSTRAP_ENABLED:true}
+    username: ${BUGLOOP_ADMIN_USERNAME:admin}
+    password: ${BUGLOOP_ADMIN_PASSWORD:admin@123}
 
