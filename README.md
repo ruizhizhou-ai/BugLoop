@@ -56,6 +56,16 @@ pnpm install
 pnpm dev
 ```
 
+也可以在仓库根目录使用开发联调脚本统一管理前后端进程：
+
+```bash
+./scripts/dev.sh start    # 启动并等待前后端就绪
+./scripts/dev.sh status   # 查询 PID、端口和健康状态
+./scripts/dev.sh restart  # 重启前后端
+./scripts/dev.sh logs     # 跟踪前后端日志
+./scripts/dev.sh stop     # 停止本脚本启动的进程
+```
+
 前端默认地址为 `http://localhost:5173`，后端健康检查地址为 `http://localhost:8080/actuator/health`。
 
 ## 鉴权说明
