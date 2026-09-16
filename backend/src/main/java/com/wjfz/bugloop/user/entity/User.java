@@ -19,21 +19,29 @@ public class User {
 
     // 用户 ID 由应用生成随机值，避免通过自增值推测用户数量和创建顺序。
     @TableId(type = IdType.INPUT)
+    // 用户主键，由应用生成随机值，避免通过 ID 推测账号数量和注册顺序。
     private Long id;
 
+    // 用户登录时使用的唯一账号。
     private String username;
 
+    // 界面和业务记录中展示的用户名称。
     private String displayName;
 
+    // BCrypt 加密后的密码摘要，禁止向接口响应透出。
     private String passwordHash;
 
+    // 系统级权限角色，例如 USER、SYSTEM_ADMIN。
     private String systemRole;
 
+    // 账号启停标记，停用账号不能继续认证。
     private Boolean enabled;
 
+    // 账号首次创建时间，由 MyBatis-Plus 自动填充。
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
+    // 账号资料最后修改时间，由 MyBatis-Plus 自动维护。
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 

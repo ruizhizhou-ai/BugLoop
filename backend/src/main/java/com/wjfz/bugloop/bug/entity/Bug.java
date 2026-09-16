@@ -13,36 +13,52 @@ import java.time.LocalDateTime;
 @TableName("bug")
 public class Bug {
     @TableId(type = IdType.AUTO)
+    // Bug 主键。
     private Long id;
 
+    // Bug 所属工作空间 ID，是数据隔离的基础边界。
     private Long workspaceId;
 
+    // 面向用户展示的全局唯一 Bug 编号。
     private String bugNo;
 
+    // Bug 的简短标题。
     private String title;
 
+    // 问题描述的 Markdown 原文。
     private String descriptionMd;
 
+    // 问题处理优先级。
     private BugPriority priority;
 
+    // Bug 当前生命周期状态。
     private BugStatus status;
 
+    // 提交 Bug 的创建人用户 ID。
     private Long creatorId;
 
+    // 当前负责人用户 ID，未指派时为空。
     private Long assigneeId;
 
+    // 负责验收处理结果的用户 ID。
     private Long acceptorId;
 
+    // 负责人填写的处理说明 Markdown 原文。
     private String fixDescriptionMd;
 
+    // 被驳回或重新打开的累计次数。
     private Integer reopenCount;
 
+    // 条件更新使用的乐观锁版本号。
     private Integer version;
 
+    // Bug 创建时间。
     private LocalDateTime createdAt;
 
+    // Bug 当前快照最后更新时间。
     private LocalDateTime updatedAt;
 
+    // Bug 关闭时间，未关闭时为空。
     private LocalDateTime closedAt;
 
     public Long getId() { return id; }

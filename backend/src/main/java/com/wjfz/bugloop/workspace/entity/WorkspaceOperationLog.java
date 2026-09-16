@@ -16,22 +16,31 @@ import java.time.LocalDateTime;
 public class WorkspaceOperationLog {
 
     @TableId(type = IdType.AUTO)
+    // 工作空间操作日志主键。
     private Long id;
 
+    // 被操作的工作空间 ID。
     private Long workspaceId;
 
+    // 实际执行操作的用户 ID。
     private Long operatorId;
 
+    // 用于区分业务行为的操作类型编码。
     private String operationType;
 
+    // 被修改的字段名；非字段变更操作时为空。
     private String fieldName;
 
+    // 变更前值的审计快照。
     private String oldValue;
 
+    // 变更后值的审计快照。
     private String newValue;
 
+    // 供页面展示的可读操作说明。
     private String description;
 
+    // 操作发生时间。
     private LocalDateTime createdAt;
 
     public Long getId() {

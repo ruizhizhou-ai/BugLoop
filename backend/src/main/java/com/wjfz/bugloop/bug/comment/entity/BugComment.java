@@ -14,17 +14,28 @@ import java.time.LocalDateTime;
 @TableName("bug_comment")
 public class BugComment {
     @TableId(type = IdType.AUTO)
+    // 评论主键。
     private Long id;
+    // 评论所属 Bug ID。
     private Long bugId;
+    // 创建该评论的用户 ID。
     private Long userId;
+    // 评论 Markdown 正文；逻辑删除后不再向客户端输出。
     private String contentMd;
+    // 评论树父节点 ID，顶级评论为空。
     private Long parentId;
+    // 当前评论直接回复的用户 ID，用于展示回复关系和后续通知扩展。
     private Long replyUserId;
+    // 评论创建时间。
     private LocalDateTime createdAt;
+    // 评论最后更新时间。
     private LocalDateTime updatedAt;
+    // 逻辑删除标记，保留节点以维持子评论关系。
     @TableField("is_deleted")
     private Boolean deleted;
+    // 执行评论删除操作的用户 ID。
     private Long deletedBy;
+    // 评论被逻辑删除的时间。
     private LocalDateTime deletedAt;
 
     public Long getId() { return id; }

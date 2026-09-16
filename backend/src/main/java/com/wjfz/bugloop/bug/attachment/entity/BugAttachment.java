@@ -14,21 +14,36 @@ import java.time.LocalDateTime;
 @TableName("bug_attachment")
 public class BugAttachment {
     @TableId(type = IdType.AUTO)
+    // 附件主键。
     private Long id;
+    // 附件所属 Bug ID。
     private Long bugId;
+    // 用户上传时保留的原始文件名。
     private String originalName;
+    // 存储模块生成的唯一文件名，避免同名文件冲突。
     private String storageName;
+    // 服务端文件存储路径，仅供下载服务定位文件。
     private String storagePath;
+    // 文件字节大小，用于展示与上传限制校验。
     private Long fileSize;
+    // 浏览器提交的 MIME 类型。
     private String contentType;
+    // 上传该附件的用户 ID。
     private Long uploaderId;
+    // 附件所属业务来源，决定详情页中的分组展示方式。
     private AttachmentBizType bizType;
+    // 业务来源记录 ID，例如验收记录 ID。
     private Long bizId;
+    // 附件逻辑删除标记，已删除文件不在常规详情中展示。
     @TableField("is_deleted")
     private Boolean deleted;
+    // 执行附件删除操作的用户 ID。
     private Long deletedBy;
+    // 附件被逻辑删除的时间。
     private LocalDateTime deletedAt;
+    // 附件上传时间。
     private LocalDateTime createdAt;
+    // 附件元数据最后更新时间。
     private LocalDateTime updatedAt;
 
     public Long getId() { return id; }

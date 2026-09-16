@@ -16,14 +16,19 @@ import java.time.LocalDateTime;
 public class WorkspaceMember {
 
     @TableId(type = IdType.AUTO)
+    // 成员关系主键。
     private Long id;
 
+    // 成员所属工作空间 ID。
     private Long workspaceId;
 
+    // 加入该工作空间的用户 ID。
     private Long userId;
 
+    // 用户在当前工作空间内的角色和权限范围。
     private WorkspaceRole role;
 
+    // 成员关系创建，即加入工作空间的时间。
     private LocalDateTime joinedAt;
 
     public Long getId() {

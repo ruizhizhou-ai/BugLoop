@@ -19,21 +19,29 @@ public class Workspace {
 
     // 工作空间 ID 由应用生成随机值，避免通过自增值枚举工作空间。
     @TableId(type = IdType.INPUT)
+    // 工作空间主键，由应用生成随机值，避免被连续 ID 枚举。
     private Long id;
 
+    // 工作空间名称。
     private String name;
 
+    // 工作空间的补充说明。
     private String description;
 
+    // 空间负责人用户 ID，承担空间管理责任。
     private Long ownerId;
 
+    // 空间启停状态，停用后不再允许常规业务操作。
     private WorkspaceStatus status;
 
+    // 创建工作空间的用户 ID，用于审计创建来源。
     private Long createdBy;
 
+    // 工作空间创建时间，由 MyBatis-Plus 自动填充。
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
+    // 工作空间最后更新时间，由 MyBatis-Plus 自动维护。
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 

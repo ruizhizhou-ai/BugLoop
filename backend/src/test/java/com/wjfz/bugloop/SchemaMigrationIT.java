@@ -55,4 +55,22 @@ class SchemaMigrationIT extends AbstractMysqlIntegrationTest {
         assertThat(columns).contains("parent_id", "reply_user_id", "updated_at", "is_deleted",
                 "deleted_by", "deleted_at");
     }
+
+    /**
+     * 验证生产 MySQL 中每个业务字段都带有说明，避免后续迁移遗漏数据库文档。
+     */
+    @Test
+    void 全部业务字段应具备中文说明() {
+        Integer documentedColumnCount = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_schema = DATABASE()
+                  AND table_name IN ('sys_user', 'workspace', 'workspace_member', 'bug', 'bug_attachment',
+                                     'bug_comment', 'bug_operation_log', 'workspace_operation_log',
+                                     'bug_description_history', 'bug_acceptance')
+                  AND column_comment <> ''
+                """, Integer.class);
+
+        // 当前 10 张业务表共 96 个业务字段；数量变化时应同步补充迁移中的字段说明。
+        assertThat(documentedColumnCount).isEqualTo(96);
+    }
 }
