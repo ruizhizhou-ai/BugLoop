@@ -43,6 +43,11 @@ export const ATTACHMENT_MAX_SIZE = 20 * 1024 * 1024
 export const ATTACHMENT_MAX_COUNT = 20
 export const ALLOWED_ATTACHMENT_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'pdf', 'txt', 'log']
 export const ATTACHMENT_ACCEPT = ALLOWED_ATTACHMENT_EXTENSIONS.map((ext) => `.${ext}`).join(',')
+// 驳回截图仅允许浏览器可预览的图片格式，避免把普通文件误标记为问题截图。
+export const REJECTION_SCREENSHOT_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp']
+export const REJECTION_SCREENSHOT_ACCEPT = REJECTION_SCREENSHOT_EXTENSIONS.map(
+  (extension) => `.${extension}`,
+).join(',')
 
 /** 返回附件不满足上传条件的原因，校验通过时返回 null。 */
 export function attachmentValidationError(file: File, existingCount = 0): string | null {
@@ -55,6 +60,25 @@ export function attachmentValidationError(file: File, existingCount = 0): string
   }
   if (existingCount >= ATTACHMENT_MAX_COUNT) {
     return `单个 Bug 最多上传 ${ATTACHMENT_MAX_COUNT} 个附件`
+  }
+  return null
+}
+
+/**
+ * 校验验收驳回时选择的问题截图，在通用附件限制外额外限制为图片类型。
+ *
+ * @param file 待上传的本地文件
+ * @param existingCount 当前 Bug 已有附件数
+ * @returns 不符合要求时的用户提示，校验通过时返回 null
+ */
+export function rejectionScreenshotValidationError(file: File, existingCount = 0): string | null {
+  const attachmentError = attachmentValidationError(file, existingCount)
+  if (attachmentError) {
+    return attachmentError
+  }
+  const extension = file.name.split('.').pop()?.toLowerCase() ?? ''
+  if (!REJECTION_SCREENSHOT_EXTENSIONS.includes(extension)) {
+    return '驳回截图仅支持 PNG、JPG、GIF 或 WEBP 图片'
   }
   return null
 }

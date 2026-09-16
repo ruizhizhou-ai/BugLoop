@@ -4,7 +4,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 import BugDetailView from '../BugDetailView.vue'
@@ -53,6 +53,8 @@ const storeMocks = {
   loadComments: vi.fn<() => Promise<void>>(),
   loadTrace: vi.fn<() => Promise<void>>(),
   addComment: vi.fn<() => Promise<void>>(),
+  reject: vi.fn<(bugId: number, commentMd: string) => Promise<void>>(),
+  uploadAttachment: vi.fn<(bugId: number, file: File) => Promise<void>>(),
   isVersionConflict: vi.fn<(error: unknown) => boolean>(() => false),
 }
 vi.mock('../bugStore', () => ({
@@ -93,11 +95,11 @@ vi.mock('../bugStore', () => ({
     saveFix: vi.fn<(bugId: number, fixDescriptionMd: string) => Promise<void>>(),
     submit: vi.fn<(bugId: number) => Promise<void>>(),
     accept: vi.fn<(bugId: number, commentMd: string | null) => Promise<void>>(),
-    reject: vi.fn<(bugId: number, commentMd: string) => Promise<void>>(),
+    reject: (bugId: number, commentMd: string) => storeMocks.reject(bugId, commentMd),
     updateBasic: () => storeMocks.updateBasic(),
     assign: vi.fn<(bugId: number, assigneeId: number) => Promise<void>>(),
     setAcceptor: vi.fn<(bugId: number, acceptorId: number) => Promise<void>>(),
-    uploadAttachment: vi.fn<(bugId: number, file: File) => Promise<void>>(),
+    uploadAttachment: (bugId: number, file: File) => storeMocks.uploadAttachment(bugId, file),
     removeAttachment: vi.fn<(bugId: number, attachmentId: number) => Promise<void>>(),
     openHistoryDetail: vi.fn<(bugId: number, versionNo: number) => Promise<void>>(),
     closeHistoryDetail: vi.fn<() => void>(),
@@ -148,7 +150,11 @@ const stubs = {
   ElAlert: { props: ['title'], template: '<div class="alert-stub">{{ title }}<slot /></div>' },
   ElCard: { template: '<section><slot name="header" /><slot /></section>' },
   ElButton: { template: '<button><slot /></button>' },
-  ElInput: { template: '<input />' },
+  ElInput: {
+    props: ['modelValue'],
+    emits: ['update:modelValue'],
+    template: '<input :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+  },
   ElSelect: { template: '<select><slot /></select>' },
   ElOption: { template: '<option />' },
   ElTag: { template: '<span class="tag"><slot /></span>' },
@@ -194,6 +200,8 @@ describe('BugDetailView', () => {
     storeMocks.loadComments.mockResolvedValue(undefined)
     storeMocks.loadTrace.mockResolvedValue(undefined)
     storeMocks.addComment.mockResolvedValue(undefined)
+    storeMocks.reject.mockResolvedValue(undefined)
+    storeMocks.uploadAttachment.mockResolvedValue(undefined)
     storeMocks.isVersionConflict.mockReturnValue(false)
   })
 
@@ -368,6 +376,32 @@ describe('BugDetailView', () => {
 
     const closed = await mountDetail({ ...BUG_BASE, status: 'CLOSED' })
     expect(closed.find('.attachment-section__add').exists()).toBe(false)
+  })
+
+  it('验收驳回时应在原因提交成功后上传暂存的问题截图', async () => {
+    const wrapper = await mountDetail({ ...BUG_BASE, status: 'WAIT_ACCEPTANCE' })
+    const rejectButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('验收驳回'))
+    await rejectButton?.trigger('click')
+
+    const screenshot = new File(['screen-image'], 'rejection-screen.png', { type: 'image/png' })
+    const screenshotInput = wrapper.findAll('input[type="file"]')[1]!
+    Object.defineProperty(screenshotInput.element, 'files', { configurable: true, value: [screenshot] })
+    await screenshotInput.trigger('change')
+
+    expect(wrapper.text()).toContain('rejection-screen.png')
+
+    const reasonInput = wrapper.findAll('input').find((input) => input.attributes('type') !== 'file')
+    await reasonInput?.setValue('登录页仍出现空白区域')
+    const confirmButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('确认驳回'))
+    await confirmButton?.trigger('click')
+    await flushPromises()
+
+    expect(storeMocks.reject).toHaveBeenCalledWith(101, '登录页仍出现空白区域')
+    expect(storeMocks.uploadAttachment).toHaveBeenCalledWith(101, screenshot)
   })
 
   it('附件列表默认收起，点击附件标题后才展开文件行', async () => {

@@ -41,10 +41,12 @@ import {
   ATTACHMENT_ACCEPT,
   BUG_PRIORITY_OPTIONS,
   PRIORITY_META,
+  REJECTION_SCREENSHOT_ACCEPT,
   STATUS_META,
   attachmentValidationError,
   formatDateTime,
   formatFileSize,
+  rejectionScreenshotValidationError,
 } from './bugMeta'
 import type { BugAttachment, BugPriority } from './bugApi'
 import { useAuthStore } from '@/features/auth/authStore'
@@ -83,6 +85,8 @@ const personDialogVisible = ref(false)
 const infoDialogVisible = ref(false)
 const previewTab = ref<'logs' | 'history'>('logs')
 const attachmentInput = ref<HTMLInputElement | null>(null)
+const rejectionScreenshotInput = ref<HTMLInputElement | null>(null)
+const rejectionScreenshot = ref<File | null>(null)
 const attachmentsExpanded = ref(false)
 // 历史记录默认收起，避免详情抽屉被长评论、验收与日志一次性撑满。
 const acceptancesExpanded = ref(false)
@@ -244,8 +248,51 @@ async function handleSubmit(): Promise<void> {
 
 function openAcceptDialog(mode: 'accept' | 'reject'): void {
   acceptMode.value = mode
-  acceptForm.commentMd = ''
+  resetAcceptanceForm()
   acceptDialogVisible.value = true
+}
+
+/** 清空验收弹窗草稿与待上传截图，避免下次验收误带入上一次驳回证据。 */
+function resetAcceptanceForm(): void {
+  acceptForm.commentMd = ''
+  rejectionScreenshot.value = null
+  if (rejectionScreenshotInput.value) {
+    rejectionScreenshotInput.value.value = ''
+  }
+}
+
+/** 打开驳回截图选择器，截图会在驳回成功后复用既有附件接口上传。 */
+function pickRejectionScreenshot(): void {
+  rejectionScreenshotInput.value?.click()
+}
+
+/**
+ * 校验并暂存一张驳回问题截图；暂存而非立即上传，避免用户取消驳回时留下无关附件。
+ *
+ * @param event 文件选择事件
+ */
+function handleRejectionScreenshotPicked(event: Event): void {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  // 清空原生选择值，保证用户可连续选择同一张修订后的截图。
+  input.value = ''
+  if (!file) {
+    return
+  }
+  const invalidReason = rejectionScreenshotValidationError(
+    file,
+    bug.value?.attachments.length ?? 0,
+  )
+  if (invalidReason) {
+    errorMessage.value = invalidReason
+    return
+  }
+  rejectionScreenshot.value = file
+}
+
+/** 移除尚未提交的截图，不会影响已经保存到 Bug 附件区的历史文件。 */
+function removeRejectionScreenshot(): void {
+  rejectionScreenshot.value = null
 }
 
 async function handleAcceptance(): Promise<void> {
@@ -254,14 +301,30 @@ async function handleAcceptance(): Promise<void> {
     errorMessage.value = '验收驳回原因不能为空'
     return
   }
+  const isRejecting = acceptMode.value === 'reject'
+  const screenshot = rejectionScreenshot.value
   const succeeded = await runAction(() =>
-    acceptMode.value === 'accept'
-      ? bugStore.accept(resolvedBugId.value, comment || null)
-      : bugStore.reject(resolvedBugId.value, comment),
+    isRejecting
+      ? bugStore.reject(resolvedBugId.value, comment)
+      : bugStore.accept(resolvedBugId.value, comment || null),
   )
-  if (succeeded) {
-    acceptDialogVisible.value = false
+  if (!succeeded) {
+    return
   }
+
+  if (isRejecting && screenshot) {
+    const uploaded = await runAction(() =>
+      bugStore.uploadAttachment(resolvedBugId.value, screenshot),
+    )
+    if (uploaded) {
+      // 让验收人提交后立即能在统一附件区域确认截图已保存。
+      attachmentsExpanded.value = true
+    } else {
+      // 驳回状态已经成功写入，不能因附件失败引导用户重复提交一次驳回。
+      errorMessage.value = `验收已驳回，但截图“${screenshot.name}”上传失败，可在附件区重新上传`
+    }
+  }
+  acceptDialogVisible.value = false
 }
 
 function openInfoDialog(): void {
@@ -796,6 +859,7 @@ onBeforeUnmount(clearImagePreviewUrl)
       v-model="acceptDialogVisible"
       :title="acceptMode === 'accept' ? '验收通过' : '验收驳回'"
       width="min(92vw, 520px)"
+      @closed="resetAcceptanceForm"
     >
       <el-form label-position="top" @submit.prevent="handleAcceptance">
         <el-form-item
@@ -809,6 +873,37 @@ onBeforeUnmount(clearImagePreviewUrl)
             maxlength="1000"
             show-word-limit
           />
+        </el-form-item>
+        <el-form-item v-if="acceptMode === 'reject'" label="问题截图（可选）">
+          <input
+            ref="rejectionScreenshotInput"
+            class="attachment-input"
+            type="file"
+            :accept="REJECTION_SCREENSHOT_ACCEPT"
+            @change="handleRejectionScreenshotPicked"
+          />
+          <div class="rejection-screenshot">
+            <div v-if="rejectionScreenshot" class="rejection-screenshot__file">
+              <span class="rejection-screenshot__icon"><AppIcon name="submitted" :size="18" /></span>
+              <span class="rejection-screenshot__name" :title="rejectionScreenshot.name">
+                {{ rejectionScreenshot.name }}
+              </span>
+              <span class="rejection-screenshot__size">{{ formatFileSize(rejectionScreenshot.size) }}</span>
+              <button type="button" @click="pickRejectionScreenshot">更换</button>
+              <button
+                type="button"
+                class="rejection-screenshot__remove"
+                aria-label="移除截图"
+                @click="removeRejectionScreenshot"
+              >
+                <AppIcon name="close" :size="16" />
+              </button>
+            </div>
+            <button v-else type="button" class="rejection-screenshot__pick" @click="pickRejectionScreenshot">
+              <AppIcon name="submitted" :size="17" /> 添加截图
+            </button>
+            <p>截图将在确认驳回后保存到当前 Bug 附件，支持 PNG、JPG、GIF、WEBP，单个不超过 20MB。</p>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -1117,6 +1212,97 @@ onBeforeUnmount(clearImagePreviewUrl)
   display: none;
 }
 
+.rejection-screenshot {
+  width: 100%;
+}
+
+.rejection-screenshot__pick,
+.rejection-screenshot__file {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  border: 1px dashed var(--bl-border-strong);
+  border-radius: 8px;
+}
+
+.rejection-screenshot__pick {
+  gap: 7px;
+  padding: 0 12px;
+  color: var(--bl-primary-light);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--bl-primary) 6%, transparent);
+}
+
+.rejection-screenshot__pick:hover,
+.rejection-screenshot__pick:focus-visible {
+  background: color-mix(in srgb, var(--bl-primary) 13%, transparent);
+  border-color: var(--bl-primary);
+}
+
+.rejection-screenshot__file {
+  gap: 9px;
+  padding: 0 9px;
+  color: var(--bl-text-secondary);
+  background: var(--bl-control-bg);
+  border-style: solid;
+}
+
+.rejection-screenshot__icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--bl-primary-light);
+  background: color-mix(in srgb, var(--bl-primary) 11%, transparent);
+  border-radius: 5px;
+}
+
+.rejection-screenshot__name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--bl-text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rejection-screenshot__size {
+  flex: 0 0 auto;
+  color: var(--bl-muted);
+  font-size: 12px;
+}
+
+.rejection-screenshot__file button {
+  flex: 0 0 auto;
+  padding: 3px 5px;
+  color: var(--bl-primary-light);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+}
+
+.rejection-screenshot__file button:hover,
+.rejection-screenshot__file button:focus-visible {
+  background: var(--bl-control-hover);
+}
+
+.rejection-screenshot__remove {
+  color: var(--bl-text-secondary) !important;
+}
+
+.rejection-screenshot p {
+  margin: 7px 0 0;
+  color: var(--bl-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .image-preview-dialog__body {
   display: grid;
   min-height: 280px;
@@ -1234,6 +1420,9 @@ onBeforeUnmount(clearImagePreviewUrl)
 
 .detail-trace__tabs .detail-trace__toggle {
   margin-right: 8px;
+  /* 首个折叠入口与附件标题使用相同的容器内容基线，不继承普通标签的横向留白。 */
+  padding-right: 0;
+  padding-left: 0;
   color: var(--bl-text);
 }
 
@@ -1516,8 +1705,20 @@ onBeforeUnmount(clearImagePreviewUrl)
   padding: 0 4px 8px;
 }
 
+/* 独立详情页的附件标题起点是容器 16px 加按钮 2px，评论统一使用同一内容基线。 */
+.bug-detail:not(.bug-detail--drawer) :deep(.bug-comment-panel) {
+  padding-right: 18px;
+  padding-left: 18px;
+}
+
+/* 抽屉附件标题起点是连续内容流 4px 加按钮 2px，评论与其保持一致。 */
+.bug-detail--drawer :deep(.bug-comment-panel) {
+  padding-right: 6px;
+  padding-left: 6px;
+}
+
 .bug-detail--drawer .detail-trace__tabs {
-  padding: 0 4px;
+  padding: 0 6px;
 }
 
 .bug-detail--drawer .detail-trace__body {

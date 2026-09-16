@@ -2,10 +2,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElOption, ElSelect } from 'element-plus'
+import { ElOption, ElSelect, ElTooltip } from 'element-plus'
 import 'element-plus/es/components/option/style/css'
 import 'element-plus/es/components/popper/style/css'
 import 'element-plus/es/components/select/style/css'
+import 'element-plus/es/components/tooltip/style/css'
 
 import AppIcon from '@/shared/components/AppIcon.vue'
 import ThemeToggle from '@/shared/components/ThemeToggle.vue'
@@ -143,35 +144,37 @@ async function handleLogout(): Promise<void> {
       </div>
 
       <div v-if="workspaceStore.workspaces.length" class="workspace-switcher-row">
-        <el-select
-          class="workspace-switcher"
-          :model-value="workspaceStore.currentWorkspaceId"
-          placeholder="选择工作空间"
-          :loading="workspaceStore.loading"
-          @change="handleWorkspaceChange"
-        >
-          <el-option
-            v-for="workspace in workspaceStore.workspaces"
-            :key="workspace.id"
-            :label="workspace.name"
-            :value="workspace.id"
+        <el-tooltip content="切换工作空间" placement="top" :show-after="300">
+          <el-select
+            class="workspace-switcher"
+            :model-value="workspaceStore.currentWorkspaceId"
+            placeholder="选择工作空间"
+            :loading="workspaceStore.loading"
+            @change="handleWorkspaceChange"
           >
-            <span>{{ workspace.name }}</span>
-            <span v-if="workspace.status === 'DISABLED'" class="workspace-option__status"
-              >已停用</span
+            <el-option
+              v-for="workspace in workspaceStore.workspaces"
+              :key="workspace.id"
+              :label="workspace.name"
+              :value="workspace.id"
             >
-          </el-option>
-        </el-select>
-        <button
-          v-if="canCreate"
-          type="button"
-          class="workspace-create-button"
-          title="新建工作空间"
-          aria-label="新建工作空间"
-          @click="createWorkspaceDialogVisible = true"
-        >
-          <AppIcon name="plus" :size="18" />
-        </button>
+              <span>{{ workspace.name }}</span>
+              <span v-if="workspace.status === 'DISABLED'" class="workspace-option__status"
+                >已停用</span
+              >
+            </el-option>
+          </el-select>
+        </el-tooltip>
+        <el-tooltip v-if="canCreate" content="新建工作空间" placement="top" :show-after="300">
+          <button
+            type="button"
+            class="workspace-create-button"
+            aria-label="新建工作空间"
+            @click="createWorkspaceDialogVisible = true"
+          >
+            <AppIcon name="plus" :size="18" />
+          </button>
+        </el-tooltip>
       </div>
 
       <nav class="sidebar-nav" aria-label="工作空间导航">
