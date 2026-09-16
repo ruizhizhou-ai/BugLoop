@@ -57,6 +57,9 @@ const workspaceStore = useWorkspaceStore()
 
 const BLANK_TEMPLATE_KEY = 'BLANK'
 const workspaceId = computed(() => Number(route.params.workspaceId))
+const workspaceTitlePrefix = computed(() => `${workspaceStore.currentWorkspace?.name ?? '当前工作空间'}-`)
+// 服务端会将该前缀写入最终标题；输入框仅接收问题描述，并为前缀占用的长度预留空间。
+const issueTitleMaxLength = computed(() => Math.max(1, 200 - workspaceTitlePrefix.value.length))
 const formRef = ref<FormInstance>()
 const errorMessage = ref('')
 const attachmentInput = ref<HTMLInputElement | null>(null)
@@ -299,14 +302,14 @@ function goBack(): void {
             :disabled="templatesLoading"
             @change="handleTemplateSelection"
           >
-            <el-radio :label="BLANK_TEMPLATE_KEY" class="bug-create__template-option">空白</el-radio>
+            <el-radio :value="BLANK_TEMPLATE_KEY" class="bug-create__template-option">空白</el-radio>
 
             <div class="bug-create__template-group">
               <span class="bug-create__template-group-title">内置模板</span>
               <el-radio
                 v-for="template in systemTemplates"
                 :key="buildTemplateKey(template)"
-                :label="buildTemplateKey(template)"
+                :value="buildTemplateKey(template)"
                 class="bug-create__template-option"
                 >{{ template.name }}</el-radio
               >
@@ -317,7 +320,7 @@ function goBack(): void {
               <el-radio
                 v-for="template in personalTemplates"
                 :key="buildTemplateKey(template)"
-                :label="buildTemplateKey(template)"
+                :value="buildTemplateKey(template)"
                 class="bug-create__template-option"
                 >{{ template.name }}</el-radio
               >
@@ -331,10 +334,12 @@ function goBack(): void {
         <el-form-item label="标题" prop="title">
           <el-input
             v-model="form.title"
-            maxlength="200"
+            :maxlength="issueTitleMaxLength"
             show-word-limit
-            placeholder="简要描述问题现象"
-          />
+            placeholder="问题描述"
+          >
+            <template #prepend>{{ workspaceTitlePrefix }}</template>
+          </el-input>
         </el-form-item>
 
         <el-form-item label="详细说明（Markdown）" prop="descriptionMd">

@@ -52,7 +52,7 @@ public class BugService {
     }
 
     /**
-     * 创建 Bug，补全默认值并生成全局编号。
+     * 创建 Bug，补全工作空间标题前缀、默认值并生成全局编号。
      * @param workspaceId 所属工作空间
      * @param request 标题、Markdown、优先级和可选人员
      * @return 主键和业务编号
@@ -72,7 +72,8 @@ public class BugService {
         bug.setWorkspaceId(workspaceId);
         // 自增主键由数据库跨空间分配；临时编号仅存在于未提交事务中，不对外暴露。
         bug.setBugNo(UUID.randomUUID().toString().replace("-", ""));
-        bug.setTitle(request.title().trim());
+        // 标题中的项目名只能由已校验的工作空间上下文确定，防止客户端伪造或遗漏归属前缀。
+        bug.setTitle(buildTitleWithWorkspacePrefix(access.workspace().getName(), request.title()));
         bug.setDescriptionMd(request.descriptionMd());
         bug.setPriority(request.priority() == null ? BugPriority.P2 : request.priority());
         bug.setStatus(BugStatus.TODO);
@@ -453,6 +454,22 @@ public class BugService {
     /** 统一参数错误语义。 */
     private BusinessException invalid(String message) {
         return new BusinessException(HttpStatus.BAD_REQUEST, 40001, message);
+    }
+
+    /**
+     * 组装对外展示的 Bug 标题，统一使用“工作空间名-问题描述”格式。
+     * 保留用户填写的问题描述原文（仅去除首尾空白），并在入库前校验最终标题不会超过表字段上限。
+     *
+     * @param workspaceName 当前工作空间名称，作为项目标题头
+     * @param issueTitle 用户填写的问题描述
+     * @return 带工作空间标题头的完整 Bug 标题
+     */
+    private String buildTitleWithWorkspacePrefix(String workspaceName, String issueTitle) {
+        String title = workspaceName.trim() + "-" + issueTitle.trim();
+        if (title.length() > 200) {
+            throw invalid("工作空间名称与问题描述组合后的标题不能超过 200 个字符");
+        }
+        return title;
     }
 
     /** 为操作日志提供面向用户的状态名称。 */

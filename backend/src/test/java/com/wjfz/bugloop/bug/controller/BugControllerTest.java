@@ -68,7 +68,7 @@ public class BugControllerTest {
     protected void 创建默认值编号与详情() throws Exception {
         long bugId = create(owner, "{\"title\":\" 默认 Bug \",\"descriptionMd\":\"# 描述\"}");
         ok(owner, get("/api/bugs/{id}", bugId))
-                .andExpect(jsonPath("$.data.title").value("默认 Bug"))
+                .andExpect(jsonPath("$.data.title").value("研发空间-默认 Bug"))
                 .andExpect(jsonPath("$.data.bugNo").value("BUG-%06d".formatted(bugId)))
                 .andExpect(jsonPath("$.data.status").value("TODO"))
                 .andExpect(jsonPath("$.data.priority").value("P2"))

@@ -101,7 +101,7 @@ const RadioGroupStub = defineComponent({
 })
 
 const RadioStub = defineComponent({
-  props: { label: { type: String, required: true } },
+  props: { value: { type: String, required: true } },
   setup(props, { slots }) {
     const select = inject<RadioSelect>(radioSelectKey)
     return () =>
@@ -109,8 +109,8 @@ const RadioStub = defineComponent({
         'button',
         {
           class: 'radio-stub',
-          'data-template-key': props.label,
-          onClick: () => select?.(props.label),
+          'data-template-key': props.value,
+          onClick: () => select?.(props.value),
         },
         slots.default?.(),
       )
