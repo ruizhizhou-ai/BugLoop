@@ -9,6 +9,7 @@ const http = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
   put: vi.fn(),
+  patch: vi.fn(),
   delete: vi.fn(),
 }))
 
@@ -16,17 +17,16 @@ vi.mock('@/shared/api/http', () => ({ default: http }))
 
 import {
   createBugTemplate,
+  createSystemBugTemplate,
   deleteBugTemplate,
   listBugTemplates,
   saveBugAsTemplate,
-  toPersonalBugTemplateViewModel,
-  toSystemBugTemplateViewModel,
+  updateBugTemplateSharing,
   updateBugTemplate,
 } from '../bugTemplateApi'
 import type {
   BugTemplate,
   CreateBugTemplateRequest,
-  SystemBugTemplateSource,
   UpdateBugTemplateRequest,
 } from '../bugTemplateApi'
 
@@ -43,6 +43,8 @@ describe('bugTemplateApi', () => {
     id: 42,
     workspaceId: 10,
     creatorId: 8,
+    scope: 'PERSONAL',
+    shared: false,
     ...createRequest,
     sourceBugId: 99,
     sourceBugNo: 'BUG-000099',
@@ -63,11 +65,13 @@ describe('bugTemplateApi', () => {
     void listBugTemplates(10)
     void createBugTemplate(10, createRequest)
     void updateBugTemplate(42, updateRequest)
+    void updateBugTemplateSharing(42, true)
     void deleteBugTemplate(42)
 
     expect(http.get).toHaveBeenCalledWith('/workspaces/10/bug-templates')
     expect(http.post).toHaveBeenCalledWith('/workspaces/10/bug-templates', createRequest)
     expect(http.put).toHaveBeenCalledWith('/bug-templates/42', updateRequest)
+    expect(http.patch).toHaveBeenCalledWith('/bug-templates/42/sharing', { shared: true })
     expect(http.delete).toHaveBeenCalledWith('/bug-templates/42')
   })
 
@@ -78,27 +82,9 @@ describe('bugTemplateApi', () => {
     expect(http.post).toHaveBeenCalledWith('/bugs/99/save-as-template', createRequest)
   })
 
-  /** 验证内置和个人模板可以安全归一，但不伪造内置模板的后端归属信息。 */
-  it('应将内置模板和个人模板映射为统一 scope', () => {
-    const systemTemplate: SystemBugTemplateSource = {
-      id: 'system-login-diagnosis',
-      ...createRequest,
-    }
-
-    expect(toPersonalBugTemplateViewModel(personalTemplate)).toEqual({
-      ...personalTemplate,
-      scope: 'PERSONAL',
-    })
-    expect(toSystemBugTemplateViewModel(systemTemplate)).toEqual({
-      ...systemTemplate,
-      scope: 'SYSTEM',
-      workspaceId: null,
-      creatorId: null,
-      sourceBugId: null,
-      sourceBugNo: null,
-      sortOrder: 0,
-      createdAt: null,
-      updatedAt: null,
-    })
+  /** 验证系统模板改由专用数据库接口创建，不再依赖前端静态模板。 */
+  it('应调用系统模板创建接口', () => {
+    void createSystemBugTemplate(createRequest)
+    expect(http.post).toHaveBeenCalledWith('/bug-templates/system', createRequest)
   })
 })

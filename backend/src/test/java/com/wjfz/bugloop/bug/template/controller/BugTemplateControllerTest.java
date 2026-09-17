@@ -24,6 +24,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -197,11 +198,44 @@ class BugTemplateControllerTest {
         // 来源 Bug 与模板是两条独立记录，删除模板后 Bug 仍可正常读取。
         ok(userB, get("/api/bugs/{bugId}", sourceBugId))
                 .andExpect(jsonPath("$.data.id").value(sourceBugId))
-                .andExpect(jsonPath("$.data.title").value("来源 Bug 标题"));
+                .andExpect(jsonPath("$.data.title").value("模板主空间-来源 Bug 标题"));
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM bug WHERE id = ?", Integer.class, sourceBugId))
                 .isEqualTo(1);
         ok(userB, get("/api/workspaces/{workspaceId}/bug-templates", primaryWorkspaceId))
                 .andExpect(jsonPath("$.data").isEmpty());
+    }
+
+    /**
+     * 验证系统模板仅系统管理员可维护，个人模板的共享开关只向同一工作空间成员开放使用。
+     */
+    @Test
+    void 系统模板仅管理员可管理且个人模板可按开关共享() throws Exception {
+        String systemBody = "{\"name\":\"统一排查模板\",\"title\":\"统一标题\",\"descriptionMd\":\"# 统一描述\",\"priority\":\"P2\"}";
+        fail(userA, post("/api/bug-templates/system").content(systemBody), 403, 40301);
+        long systemTemplateId = number(ok(admin, post("/api/bug-templates/system").content(systemBody)), "$.data.id");
+
+        // 全局系统模板不依赖工作空间归属，普通成员可以使用，但只有系统管理员能修改。
+        ok(userA, get("/api/workspaces/{workspaceId}/bug-templates", primaryWorkspaceId))
+                .andExpect(jsonPath("$.data[0].id").value(systemTemplateId))
+                .andExpect(jsonPath("$.data[0].scope").value("SYSTEM"));
+        fail(userA, put("/api/bug-templates/{templateId}", systemTemplateId)
+                .content(updateRequest("越权内置模板", "越权标题", 0)), 403, 40301);
+
+        long personalTemplateId = create(userA, primaryWorkspaceId, "A 的共享模板", "共享标题");
+        // 未共享前，B 只能看到系统模板，不能看到 A 的个人模板。
+        ok(userB, get("/api/workspaces/{workspaceId}/bug-templates", primaryWorkspaceId))
+                .andExpect(jsonPath("$.data.length()").value(1));
+        ok(userA, patch("/api/bug-templates/{templateId}/sharing", personalTemplateId)
+                .content("{\"shared\":true}"))
+                .andExpect(jsonPath("$.data.scope").value("PERSONAL"))
+                .andExpect(jsonPath("$.data.shared").value(true));
+        // 共享后 B 在同一空间可使用该模板，但服务仍拒绝 B 修改 A 的模板。
+        ok(userB, get("/api/workspaces/{workspaceId}/bug-templates", primaryWorkspaceId))
+                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data[0].id").value(personalTemplateId))
+                .andExpect(jsonPath("$.data[0].shared").value(true));
+        fail(userB, patch("/api/bug-templates/{templateId}/sharing", personalTemplateId)
+                .content("{\"shared\":false}"), 403, 40301);
     }
 
     /**

@@ -1,20 +1,23 @@
 /**
- * 本文件封装 Bug 个人模板接口与统一模板 ViewModel。
- * 后端返回的个人模板和现有 bugTemplates.ts 中的内置模板通过 scope 归一，页面层只需按 SYSTEM、PERSONAL 分组展示。
+ * 本文件封装数据库 Bug 模板接口与统一 ViewModel。
+ * 后端已统一返回系统、个人和共享个人模板，页面只需按 scope 与创建人分组展示。
  */
 import type { BugPriority } from './bugApi'
 import http from '@/shared/api/http'
 
-/** 模板来源范围；SYSTEM 对应前端内置模板，PERSONAL 对应当前用户的后端个人模板。 */
+/** 模板来源范围；SYSTEM 为数据库全局系统模板，PERSONAL 为工作空间个人模板。 */
 export type TemplateScope = 'SYSTEM' | 'PERSONAL'
 
 /**
- * 后端 BugTemplateVO 对应的数据模型，仅表示当前用户可访问的个人模板。
+ * 后端 BugTemplateVO 对应的数据模型，表示当前用户在目标工作空间可使用的模板。
  */
 export interface BugTemplate {
   id: number
   workspaceId: number
   creatorId: number
+  scope: TemplateScope
+  /** 个人模板是否已向同工作空间成员开放使用；系统模板固定为 false。 */
+  shared: boolean
   name: string
   title: string
   descriptionMd: string
@@ -41,79 +44,13 @@ export interface UpdateBugTemplateRequest extends CreateBugTemplateRequest {
 }
 
 /** 从 Bug 保存为模板时允许提交的字段，来源 Bug 主键由接口路径确定。 */
-export interface SaveBugAsTemplateRequest extends CreateBugTemplateRequest {}
+export type SaveBugAsTemplateRequest = CreateBugTemplateRequest
 
 /**
- * 内置模板静态配置应满足的最小结构。此类型只描述 bugTemplates.ts 的对接契约，不维护具体内置模板内容。
- */
-export interface SystemBugTemplateSource {
-  id: string
-  name: string
-  title: string
-  descriptionMd: string
-  priority: BugPriority
-  sortOrder?: number
-}
-
-/**
- * 页面统一使用的模板模型，个人模板保留其归属元数据，内置模板则以 null 表示无后端持久化归属。
- */
-export interface BugTemplateViewModel {
-  id: string | number
-  scope: TemplateScope
-  name: string
-  title: string
-  descriptionMd: string
-  priority: BugPriority
-  workspaceId: number | null
-  creatorId: number | null
-  sourceBugId: number | null
-  sourceBugNo: string | null
-  sortOrder: number
-  createdAt: string | null
-  updatedAt: string | null
-}
-
-/**
- * 将后端个人模板转换为统一 ViewModel，供页面与 SYSTEM 模板合并后分组展示。
- *
- * @param template 后端返回的个人模板
- * @returns scope 为 PERSONAL 的统一模板模型
- */
-export function toPersonalBugTemplateViewModel(template: BugTemplate): BugTemplateViewModel {
-  return {
-    ...template,
-    scope: 'PERSONAL',
-  }
-}
-
-/**
- * 将 bugTemplates.ts 提供的内置模板转换为统一 ViewModel，不向静态模板补造后端归属信息。
- *
- * @param template 内置模板静态配置项
- * @returns scope 为 SYSTEM 的统一模板模型
- */
-export function toSystemBugTemplateViewModel(
-  template: SystemBugTemplateSource,
-): BugTemplateViewModel {
-  return {
-    ...template,
-    scope: 'SYSTEM',
-    workspaceId: null,
-    creatorId: null,
-    sourceBugId: null,
-    sourceBugNo: null,
-    sortOrder: template.sortOrder ?? 0,
-    createdAt: null,
-    updatedAt: null,
-  }
-}
-
-/**
- * 查询当前用户在指定工作空间中的个人模板，不返回内置模板；页面层负责与静态来源合并。
+ * 查询当前用户在指定工作空间可使用的系统、个人和共享模板。
  *
  * @param workspaceId 当前工作空间主键
- * @returns 当前用户的个人模板列表
+ * @returns 当前用户可使用的模板列表
  */
 export function listBugTemplates(workspaceId: number): Promise<BugTemplate[]> {
   return http.get<unknown, BugTemplate[]>(`/workspaces/${workspaceId}/bug-templates`)
@@ -131,6 +68,16 @@ export function createBugTemplate(
   request: CreateBugTemplateRequest,
 ): Promise<BugTemplate> {
   return http.post<unknown, BugTemplate>(`/workspaces/${workspaceId}/bug-templates`, request)
+}
+
+/**
+ * 创建数据库系统模板，服务端仅允许系统管理员调用。
+ *
+ * @param request 系统模板基础字段
+ * @returns 新建系统模板
+ */
+export function createSystemBugTemplate(request: CreateBugTemplateRequest): Promise<BugTemplate> {
+  return http.post<unknown, BugTemplate>('/bug-templates/system', request)
 }
 
 /**
@@ -155,6 +102,20 @@ export function updateBugTemplate(
  */
 export function deleteBugTemplate(templateId: number): Promise<void> {
   return http.delete<unknown, void>(`/bug-templates/${templateId}`)
+}
+
+/**
+ * 切换当前用户个人模板的共享开关；共享后同工作空间成员可选择该模板。
+ *
+ * @param templateId 目标个人模板主键
+ * @param shared 目标共享状态
+ * @returns 更新后的模板
+ */
+export function updateBugTemplateSharing(
+  templateId: number,
+  shared: boolean,
+): Promise<BugTemplate> {
+  return http.patch<unknown, BugTemplate>(`/bug-templates/${templateId}/sharing`, { shared })
 }
 
 /**

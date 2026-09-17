@@ -1,5 +1,5 @@
 /**
- * 本文件验证模板管理弹窗的列表展示、新建、编辑、删除与内置模板只读规则。
+ * 本文件验证模板管理页面的类型筛选、新建、编辑、删除与系统模板只读规则。
  * 仅 Mock HTTP 层，模板数据访问与 ViewModel 归一使用真实实现。
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -15,6 +15,7 @@ const http = vi.hoisted(() => ({
   get: vi.fn<(url: string) => Promise<unknown>>(),
   post: vi.fn<(url: string, body?: unknown) => Promise<unknown>>(),
   put: vi.fn<(url: string, body?: unknown) => Promise<unknown>>(),
+  patch: vi.fn<(url: string, body?: unknown) => Promise<unknown>>(),
   delete: vi.fn<(url: string) => Promise<unknown>>(),
 }))
 
@@ -33,6 +34,8 @@ const SOURCE_TEMPLATE: BugTemplate = {
   id: 42,
   workspaceId: 1,
   creatorId: 10,
+  scope: 'PERSONAL',
+  shared: false,
   name: '登录失败排查模板',
   title: '登录后出现服务异常',
   descriptionMd: '## 问题现象',
@@ -54,7 +57,7 @@ const MANUAL_TEMPLATE: BugTemplate = {
 }
 
 const stubs = {
-  // 真实弹窗通过 Teleport 挂到 body，桩件直接内联渲染，便于查询列表和表单内容。
+  // 编辑弹窗通过 Teleport 挂到 body，桩件直接内联渲染，便于查询表单内容。
   ElDialog: {
     props: ['modelValue'],
     template: '<div v-if="modelValue" class="dialog-stub"><slot /><slot name="footer" /></div>',
@@ -64,12 +67,23 @@ const stubs = {
     template:
       '<span class="popconfirm-stub"><slot name="reference" /><button class="popconfirm-confirm" @click="$emit(\'confirm\')">确认</button></span>',
   },
+  // 原生 select 让用例可直接切换模板类型，避免依赖下拉浮层的 Teleport 行为。
+  ElSelect: {
+    props: ['modelValue'],
+    emits: ['update:modelValue', 'change'],
+    template:
+      '<select :value="modelValue" v-bind="$attrs" @change="$emit(\'update:modelValue\', $event.target.value); $emit(\'change\', $event.target.value)"><slot /></select>',
+  },
+  ElOption: {
+    props: ['label', 'value'],
+    template: '<option :value="value">{{ label }}</option>',
+  },
 }
 
-/** 挂载已打开的模板管理弹窗，列表数据由各用例的 HTTP Mock 决定。 */
+/** 挂载模板管理页面，列表数据由各用例的 HTTP Mock 决定。 */
 function mountManager() {
   return mount(BugTemplateManager, {
-    props: { modelValue: true, workspaceId: 1 },
+    props: { workspaceId: 1, currentUserId: 10 },
     global: { stubs },
   })
 }
@@ -88,33 +102,57 @@ describe('BugTemplateManager', () => {
     http.delete.mockResolvedValue(undefined)
   })
 
-  it('应展示我的模板与内置模板，且内置模板没有编辑删除入口', async () => {
-    http.get.mockResolvedValue([SOURCE_TEMPLATE, MANUAL_TEMPLATE])
+  it('应通过模板类型下拉框展示数据库中的对应模板', async () => {
+    const systemTemplate: BugTemplate = {
+      ...SOURCE_TEMPLATE,
+      id: 99,
+      workspaceId: 0,
+      creatorId: 0,
+      scope: 'SYSTEM',
+      name: '常规 Bug',
+    }
+    const sharedTemplate: BugTemplate = {
+      ...MANUAL_TEMPLATE,
+      id: 100,
+      creatorId: 11,
+      shared: true,
+      name: '发布前检查模板',
+    }
+    http.get.mockResolvedValue([SOURCE_TEMPLATE, MANUAL_TEMPLATE, systemTemplate, sharedTemplate])
     const wrapper = mountManager()
     await flushPromises()
 
     expect(http.get).toHaveBeenCalledWith('/workspaces/1/bug-templates')
     expect(wrapper.text()).toContain('我的模板')
-    expect(wrapper.text()).toContain('内置模板')
     expect(wrapper.text()).toContain('登录失败排查模板')
     expect(wrapper.text()).toContain('基于 BUG-000022')
     expect(wrapper.text()).toContain('更新于 2026-09-16')
     expect(wrapper.text()).toContain('数据异常模板')
     expect(wrapper.text()).toContain('手工创建')
     expect(wrapper.text()).toContain('我的')
-    expect(wrapper.text()).toContain('内置')
-
-    const systemRow = wrapper
-      .findAll('.template-row')
-      .find((row) => row.text().includes('常规 Bug'))
-    expect(systemRow).toBeDefined()
-    expect(systemRow!.findAll('button')).toHaveLength(0)
 
     const personalRow = wrapper
       .findAll('.template-row')
       .find((row) => row.text().includes('登录失败排查模板'))
     expect(personalRow!.text()).toContain('编辑')
     expect(personalRow!.text()).toContain('删除')
+
+    await wrapper.get('[data-template-scope-select]').setValue('SYSTEM')
+    await nextTick()
+
+    expect(wrapper.text()).toContain('系统模板')
+    const systemRow = wrapper
+      .findAll('.template-row')
+      .find((row) => row.text().includes('常规 Bug'))
+    expect(systemRow).toBeDefined()
+    expect(systemRow!.findAll('button')).toHaveLength(0)
+
+    await wrapper.get('[data-template-scope-select]').setValue('SHARED')
+    await nextTick()
+
+    expect(wrapper.text()).toContain('共享模板')
+    expect(wrapper.text()).toContain('发布前检查模板')
+    expect(wrapper.findAll('.template-row')[0]!.findAll('button')).toHaveLength(0)
   })
 
   it('新建模板应提交到当前工作空间并在成功后刷新列表', async () => {
@@ -129,7 +167,9 @@ describe('BugTemplateManager', () => {
     await nextTick()
 
     // 编辑弹窗内只有名称和标题两个输入框，优先级通过下拉选择不出现在这里。
-    const inputs = wrapper.findAll('input')
+    const inputs = wrapper
+      .findAll('input')
+      .filter((input) => input.attributes('type') !== 'checkbox')
     await inputs[0]!.setValue('接口超时排查')
     await inputs[1]!.setValue('接口调用超时')
     await wrapper.find('.md-editor-stub').setValue('## 请求接口')
@@ -156,7 +196,9 @@ describe('BugTemplateManager', () => {
     await editButton!.trigger('click')
     await nextTick()
 
-    const inputs = wrapper.findAll('input')
+    const inputs = wrapper
+      .findAll('input')
+      .filter((input) => input.attributes('type') !== 'checkbox')
     expect((inputs[0]!.element as HTMLInputElement).value).toBe('登录失败排查模板')
     expect((inputs[1]!.element as HTMLInputElement).value).toBe('登录后出现服务异常')
     expect((wrapper.find('.md-editor-stub').element as HTMLTextAreaElement).value).toBe(

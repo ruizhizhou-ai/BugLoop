@@ -1,4 +1,4 @@
-<!-- 本文件实现 Bug 创建页，支持从内置或个人模板回填基础字段，默认验收人为当前用户。 -->
+<!-- 本文件实现 Bug 创建页，支持按模板类型下拉选择数据库系统、个人或共享模板，默认验收人为当前用户。 -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -10,8 +10,6 @@ import {
   ElInput,
   ElMessageBox,
   ElOption,
-  ElRadio,
-  ElRadioGroup,
   ElSelect,
 } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -23,14 +21,12 @@ import 'element-plus/es/components/input/style/css'
 import 'element-plus/es/components/message-box/style/css'
 import 'element-plus/es/components/option/style/css'
 import 'element-plus/es/components/popper/style/css'
-import 'element-plus/es/components/radio/style/css'
 import 'element-plus/es/components/select/style/css'
 import { MdEditor } from 'md-editor-v3'
 import type { UploadImgEvent } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
 
 import { useBugStore } from './bugStore'
-import BugTemplateManager from './BugTemplateManager.vue'
 import {
   ATTACHMENT_ACCEPT,
   BUG_PRIORITY_OPTIONS,
@@ -39,13 +35,8 @@ import {
 } from './bugMeta'
 import { uploadBugDraftImage } from './bugApi'
 import type { BugCreated, BugPriority } from './bugApi'
-import { SYSTEM_BUG_TEMPLATES } from './bugTemplates'
-import {
-  listBugTemplates,
-  toPersonalBugTemplateViewModel,
-  toSystemBugTemplateViewModel,
-} from './bugTemplateApi'
-import type { BugTemplateViewModel } from './bugTemplateApi'
+import { listBugTemplates } from './bugTemplateApi'
+import type { BugTemplate } from './bugTemplateApi'
 import { useAuthStore } from '@/features/auth/authStore'
 import { useWorkspaceStore } from '@/features/workspace/workspaceStore'
 import AppNotice from '@/shared/components/AppNotice.vue'
@@ -59,8 +50,11 @@ const auth = useAuthStore()
 const workspaceStore = useWorkspaceStore()
 
 const BLANK_TEMPLATE_KEY = 'BLANK'
+type TemplateCategory = 'BLANK' | 'SYSTEM' | 'PERSONAL' | 'SHARED'
 const workspaceId = computed(() => Number(route.params.workspaceId))
-const workspaceTitlePrefix = computed(() => `${workspaceStore.currentWorkspace?.name ?? '当前工作空间'}-`)
+const workspaceTitlePrefix = computed(
+  () => `${workspaceStore.currentWorkspace?.name ?? '当前工作空间'}-`,
+)
 // 服务端会将该前缀写入最终标题；输入框仅接收问题描述，并为前缀占用的长度预留空间。
 const issueTitleMaxLength = computed(() => Math.max(1, 200 - workspaceTitlePrefix.value.length))
 const formRef = ref<FormInstance>()
@@ -72,19 +66,45 @@ const createdBug = ref<BugCreated | null>(null)
 // 图片内容接口要求 Authorization 请求头；缓存为 Blob URL 后，Markdown 编辑器预览不会裸请求受保护地址。
 const markdownImageUrls = new Map<string, string>()
 const markdownImageTasks = new Map<string, Promise<string>>()
-const personalTemplates = ref<BugTemplateViewModel[]>([])
+const availableTemplates = ref<BugTemplate[]>([])
 const templatesLoading = ref(false)
-const templateManagerVisible = ref(false)
-// “空白”是默认项；只有确认实际应用模板后才更新 appliedTemplateKey，用于取消覆盖时回退选择状态。
-const selectedTemplateKey = ref(BLANK_TEMPLATE_KEY)
+// 类型与具体模板拆开保存，避免切换下拉类型时立即覆盖用户已填写的内容。
+const selectedTemplateCategory = ref<TemplateCategory>('BLANK')
+const selectedTemplateKey = ref<string | null>(null)
+// 只有确认实际应用模板后才更新，用于在覆盖确认取消时恢复下拉选项。
 const appliedTemplateKey = ref(BLANK_TEMPLATE_KEY)
 
-const systemTemplates = SYSTEM_BUG_TEMPLATES.map(toSystemBugTemplateViewModel)
+const systemTemplates = computed(() =>
+  availableTemplates.value.filter((template) => template.scope === 'SYSTEM'),
+)
+const personalTemplates = computed(() =>
+  availableTemplates.value.filter(
+    (template) => template.scope === 'PERSONAL' && template.creatorId === auth.user?.id,
+  ),
+)
+const sharedTemplates = computed(() =>
+  availableTemplates.value.filter(
+    (template) => template.scope === 'PERSONAL' && template.creatorId !== auth.user?.id,
+  ),
+)
+const templatesForSelectedCategory = computed(() => {
+  switch (selectedTemplateCategory.value) {
+    case 'SYSTEM':
+      return systemTemplates.value
+    case 'PERSONAL':
+      return personalTemplates.value
+    case 'SHARED':
+      return sharedTemplates.value
+    default:
+      return []
+  }
+})
 const templateByKey = computed(() => {
-  const entries = [...systemTemplates, ...personalTemplates.value].map(
-    (template): [string, BugTemplateViewModel] => [buildTemplateKey(template), template],
-  )
-  return new Map<string, BugTemplateViewModel>(entries)
+  const entries = availableTemplates.value.map((template): [string, BugTemplate] => [
+    buildTemplateKey(template),
+    template,
+  ])
+  return new Map<string, BugTemplate>(entries)
 })
 
 const form = reactive({
@@ -114,34 +134,35 @@ const rules: FormRules = {
   ],
 }
 
-/** 工作空间切换时重新加载当前用户的个人模板，不能复用上一个空间的列表。 */
+/** 工作空间切换时重新加载当前空间可使用的数据库模板，不能复用上一个空间的下拉选择。 */
 watch(
   workspaceId,
   () => {
-    selectedTemplateKey.value = BLANK_TEMPLATE_KEY
+    selectedTemplateCategory.value = 'BLANK'
+    selectedTemplateKey.value = null
     appliedTemplateKey.value = BLANK_TEMPLATE_KEY
-    personalTemplates.value = []
-    void loadPersonalTemplates()
+    availableTemplates.value = []
+    void loadTemplates()
   },
   { immediate: true },
 )
 
-/** 加载个人模板失败不影响空白或内置模板创建，提示保留在当前创建页。 */
-async function loadPersonalTemplates(): Promise<void> {
+/** 加载数据库模板失败不影响空白 Bug 创建，提示保留在当前创建页。 */
+async function loadTemplates(): Promise<void> {
   templatesLoading.value = true
   try {
-    personalTemplates.value = (await listBugTemplates(workspaceId.value))
-      .map(toPersonalBugTemplateViewModel)
-      .sort((left, right) => left.sortOrder - right.sortOrder)
+    availableTemplates.value = (await listBugTemplates(workspaceId.value)).sort(
+      (left, right) => left.sortOrder - right.sortOrder,
+    )
   } catch (error) {
-    errorMessage.value = isApiError(error) ? error.message : '加载我的模板失败，请稍后重试'
+    errorMessage.value = isApiError(error) ? error.message : '加载模板失败，请稍后重试'
   } finally {
     templatesLoading.value = false
   }
 }
 
-/** 为不同来源生成稳定且不冲突的单选项键，内置字符串 ID 与个人数字 ID 可共存。 */
-function buildTemplateKey(template: BugTemplateViewModel): string {
+/** 为不同数据库范围生成稳定且不冲突的下拉选项键。 */
+function buildTemplateKey(template: BugTemplate): string {
   return `${template.scope}:${template.id}`
 }
 
@@ -153,13 +174,10 @@ function hasTemplateOverwritableContent(): boolean {
 /**
  * 处理模板选择；切换到空白模板会清除模板填入的基础字段，负责人和验收人保持用户选择。
  *
- * @param selectedKey 当前单选组件选择的模板键；Element Plus 允许多种值类型，页面仅接受字符串键
+ * @param selectedKey 当前下拉组件选择的模板键
  */
-async function handleTemplateSelection(
-  selectedKey: string | number | boolean | undefined,
-): Promise<void> {
-  if (typeof selectedKey !== 'string') {
-    selectedTemplateKey.value = appliedTemplateKey.value
+async function handleTemplateSelection(selectedKey: string | null | undefined): Promise<void> {
+  if (!selectedKey) {
     return
   }
   if (selectedKey === BLANK_TEMPLATE_KEY) {
@@ -173,7 +191,7 @@ async function handleTemplateSelection(
         })
       } catch {
         // 用户取消后恢复已实际应用的模板选项，表单内容与人员选择均不变。
-        selectedTemplateKey.value = appliedTemplateKey.value
+        restoreAppliedTemplateSelection()
         return
       }
     }
@@ -182,12 +200,13 @@ async function handleTemplateSelection(
     form.descriptionMd = ''
     form.priority = 'P2'
     appliedTemplateKey.value = BLANK_TEMPLATE_KEY
+    selectedTemplateKey.value = null
     return
   }
   const template = templateByKey.value.get(selectedKey)
   if (!template) {
     // 模板列表异步刷新后不存在的旧选择必须回退，避免展示无法应用的错误状态。
-    selectedTemplateKey.value = appliedTemplateKey.value
+    restoreAppliedTemplateSelection()
     return
   }
   if (hasTemplateOverwritableContent()) {
@@ -199,7 +218,7 @@ async function handleTemplateSelection(
       })
     } catch {
       // 用户取消后恢复到上一次已确认的选项，表单和负责人、验收人均保持不变。
-      selectedTemplateKey.value = appliedTemplateKey.value
+      restoreAppliedTemplateSelection()
       return
     }
   }
@@ -208,6 +227,30 @@ async function handleTemplateSelection(
   form.descriptionMd = template.descriptionMd
   form.priority = template.priority
   appliedTemplateKey.value = selectedKey
+}
+
+/**
+ * 切换模板类型时只更新候选列表；切换到空白才会走清空确认，避免类型浏览误改表单。
+ *
+ * @param category 用户在类型下拉框中选择的范围
+ */
+async function handleTemplateCategorySelection(category: TemplateCategory): Promise<void> {
+  selectedTemplateCategory.value = category
+  selectedTemplateKey.value = null
+  if (category === 'BLANK') {
+    await handleTemplateSelection(BLANK_TEMPLATE_KEY)
+  }
+}
+
+/** 覆盖确认取消或模板异步消失时，根据最后实际应用的模板恢复两个下拉框。 */
+function restoreAppliedTemplateSelection(): void {
+  if (appliedTemplateKey.value === BLANK_TEMPLATE_KEY) {
+    selectedTemplateCategory.value = 'BLANK'
+    selectedTemplateKey.value = null
+    return
+  }
+  selectedTemplateCategory.value = appliedTemplateKey.value.split(':', 1)[0] as TemplateCategory
+  selectedTemplateKey.value = appliedTemplateKey.value
 }
 
 /**
@@ -222,7 +265,9 @@ const handleMarkdownImageUpload: UploadImgEvent = async (files, callback) => {
   }
   errorMessage.value = ''
   try {
-    const images = await Promise.all(files.map((file) => uploadBugDraftImage(workspaceId.value, file)))
+    const images = await Promise.all(
+      files.map((file) => uploadBugDraftImage(workspaceId.value, file)),
+    )
     // 先完成 Blob 缓存再回填 Markdown，避免编辑器预览用原生 img 请求时遗漏 Authorization 请求头。
     await Promise.all(images.map((image) => cacheMarkdownImage(image.url)))
     callback(images.map((image) => image.url))
@@ -370,48 +415,43 @@ onBeforeUnmount(() => {
               <h3 id="template-heading">使用模板</h3>
               <p>模板仅会填充标题、详细说明和优先级。</p>
             </div>
-            <button
-              type="button"
-              class="bug-create__templates-manage"
-              @click="templateManagerVisible = true"
-            >
-              管理我的模板 →
-            </button>
           </div>
 
-          <el-radio-group
-            v-model="selectedTemplateKey"
-            class="bug-create__template-options"
-            :disabled="templatesLoading"
-            @change="handleTemplateSelection"
-          >
-            <el-radio :value="BLANK_TEMPLATE_KEY" class="bug-create__template-option">空白</el-radio>
+          <div class="bug-create__template-selects">
+            <label class="bug-create__template-field">
+              <span>模板类型</span>
+              <el-select
+                v-model="selectedTemplateCategory"
+                data-template-category-select
+                :disabled="templatesLoading"
+                @change="handleTemplateCategorySelection"
+              >
+                <el-option label="空白" value="BLANK" />
+                <el-option label="系统模板" value="SYSTEM" />
+                <el-option label="我的模板" value="PERSONAL" />
+                <el-option label="共享模板" value="SHARED" />
+              </el-select>
+            </label>
 
-            <div class="bug-create__template-group">
-              <span class="bug-create__template-group-title">内置模板</span>
-              <el-radio
-                v-for="template in systemTemplates"
-                :key="buildTemplateKey(template)"
-                :value="buildTemplateKey(template)"
-                class="bug-create__template-option"
-                >{{ template.name }}</el-radio
+            <label v-if="selectedTemplateCategory !== 'BLANK'" class="bug-create__template-field">
+              <span>选择模板</span>
+              <el-select
+                v-model="selectedTemplateKey"
+                data-template-select
+                :disabled="templatesLoading || !templatesForSelectedCategory.length"
+                :placeholder="templatesForSelectedCategory.length ? '请选择模板' : '暂无可用模板'"
+                clearable
+                @change="handleTemplateSelection"
               >
-            </div>
-
-            <div class="bug-create__template-group">
-              <span class="bug-create__template-group-title">我的模板</span>
-              <el-radio
-                v-for="template in personalTemplates"
-                :key="buildTemplateKey(template)"
-                :value="buildTemplateKey(template)"
-                class="bug-create__template-option"
-                >{{ template.name }}</el-radio
-              >
-              <span v-if="!templatesLoading && !personalTemplates.length" class="bug-create__template-empty"
-                >暂无个人模板</span
-              >
-            </div>
-          </el-radio-group>
+                <el-option
+                  v-for="template in templatesForSelectedCategory"
+                  :key="buildTemplateKey(template)"
+                  :label="template.name"
+                  :value="buildTemplateKey(template)"
+                />
+              </el-select>
+            </label>
+          </div>
         </section>
 
         <el-form-item label="标题" prop="title">
@@ -487,7 +527,11 @@ onBeforeUnmount(() => {
             <li v-for="(file, index) in pendingFiles" :key="file.name + index">
               <span class="bug-create__file-name">{{ file.name }}</span>
               <span class="bug-create__file-size">{{ formatFileSize(file.size) }}</span>
-              <el-button link type="danger" class="bug-create__file-remove" @click="removeAttachment(index)"
+              <el-button
+                link
+                type="danger"
+                class="bug-create__file-remove"
+                @click="removeAttachment(index)"
                 >移除</el-button
               >
             </li>
@@ -504,12 +548,6 @@ onBeforeUnmount(() => {
         <el-button v-else type="primary" @click="openDetail">进入详情页</el-button>
       </el-form>
     </el-card>
-
-    <BugTemplateManager
-      v-model="templateManagerVisible"
-      :workspace-id="workspaceId"
-      @changed="loadPersonalTemplates"
-    />
   </main>
 </template>
 
@@ -559,51 +597,23 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
-.bug-create__templates-manage {
-  flex: 0 0 auto;
-  padding: 0;
-  color: var(--bl-muted);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  background: transparent;
-  border: 0;
-}
-
-.bug-create__templates-manage:hover,
-.bug-create__templates-manage:focus-visible {
-  color: var(--bl-primary-light);
-}
-
-.bug-create__template-options {
+.bug-create__template-selects {
   display: flex;
-  align-items: flex-start;
   flex-wrap: wrap;
-  gap: 12px 24px;
+  gap: 12px 16px;
 }
 
-.bug-create__template-group {
+.bug-create__template-field {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  min-height: 24px;
-  padding-left: 24px;
-  border-left: 1px solid var(--bl-border);
-}
-
-.bug-create__template-group-title {
+  flex: 1 1 230px;
+  flex-direction: column;
+  gap: 6px;
   color: var(--bl-muted);
   font-size: 12px;
 }
 
-.bug-create__template-option {
-  margin-right: 0;
-}
-
-.bug-create__template-empty {
-  color: var(--bl-muted);
-  font-size: 13px;
+.bug-create__template-field :deep(.el-select) {
+  width: 100%;
 }
 
 .bug-create__row {
@@ -687,16 +697,8 @@ onBeforeUnmount(() => {
     flex-direction: column;
   }
 
-  .bug-create__template-options {
+  .bug-create__template-selects {
     flex-direction: column;
-    align-items: stretch;
-  }
-
-  .bug-create__template-group {
-    padding-top: 10px;
-    padding-left: 0;
-    border-top: 1px solid var(--bl-border);
-    border-left: 0;
   }
 }
 </style>

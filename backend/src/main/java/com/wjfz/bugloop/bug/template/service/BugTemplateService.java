@@ -1,6 +1,6 @@
 /**
- * 本文件实现个人 Bug 模板的创建、查询、修改和逻辑删除。
- * 所有读取与写入都以工作空间和当前登录用户为边界，系统管理员不具备查看或管理其他用户个人模板的例外权限。
+ * 本文件实现系统与个人 Bug 模板的创建、查询、修改、共享和逻辑删除。
+ * 系统模板全局可用且仅系统管理员可管理；个人模板按工作空间隔离，共享仅扩大成员的使用范围。
  */
 package com.wjfz.bugloop.bug.template.service;
 
@@ -8,6 +8,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.wjfz.bugloop.bug.template.dto.CreateBugTemplateRequest;
 import com.wjfz.bugloop.bug.template.dto.SaveBugAsTemplateRequest;
 import com.wjfz.bugloop.bug.template.dto.UpdateBugTemplateRequest;
+import com.wjfz.bugloop.bug.template.dto.UpdateBugTemplateSharingRequest;
 import com.wjfz.bugloop.bug.entity.Bug;
 import com.wjfz.bugloop.bug.mapper.BugMapper;
 import com.wjfz.bugloop.bug.template.entity.BugTemplate;
@@ -26,10 +27,13 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
- * Bug 个人模板业务服务，集中保证模板始终只能被其创建人读取和管理。
+ * Bug 模板业务服务，集中保证系统模板权限与个人模板可见、共享和管理边界。
  */
 @Service
 public class BugTemplateService {
+
+    private static final String SYSTEM_SCOPE = "SYSTEM";
+    private static final String PERSONAL_SCOPE = "PERSONAL";
 
     private final BugTemplateMapper templates;
     private final BugMapper bugs;
@@ -49,18 +53,23 @@ public class BugTemplateService {
     }
 
     /**
-     * 查询当前用户在指定工作空间内创建的未删除模板，管理员也只能得到自己的记录。
+     * 查询当前用户在指定工作空间内可使用的模板：全局系统模板、自己的个人模板和他人主动共享的个人模板。
      *
      * @param workspaceId 目标工作空间主键
-     * @return 当前用户的模板列表，按排序值和稳定次序排列
+     * @return 当前用户可使用的模板列表，按范围和排序值排列
      */
     @Transactional(readOnly = true)
     public List<BugTemplateVO> list(Long workspaceId) {
         WorkspaceAccess access = workspaces.requireReadable(workspaceId);
         List<BugTemplate> records = templates.selectList(Wrappers.<BugTemplate>lambdaQuery()
-                // 必须同时限定空间与创建人，不能因管理员身份放宽个人模板边界。
-                .eq(BugTemplate::getWorkspaceId, workspaceId)
-                .eq(BugTemplate::getCreatorId, access.currentUser().getId())
+                // 系统模板全局可用；个人模板必须属于当前空间，且仅本人或主动共享的记录可见。
+                .and(query -> query.eq(BugTemplate::getScope, SYSTEM_SCOPE)
+                        .or(personal -> personal.eq(BugTemplate::getScope, PERSONAL_SCOPE)
+                                .eq(BugTemplate::getWorkspaceId, workspaceId)
+                                .and(visibility -> visibility.eq(BugTemplate::getCreatorId, access.currentUser().getId())
+                                        .or()
+                                        .eq(BugTemplate::getShared, true))))
+                .orderByAsc(BugTemplate::getScope)
                 .orderByAsc(BugTemplate::getSortOrder)
                 .orderByDesc(BugTemplate::getUpdatedAt)
                 .orderByDesc(BugTemplate::getId));
@@ -95,6 +104,8 @@ public class BugTemplateService {
         BugTemplate template = new BugTemplate();
         template.setWorkspaceId(workspaceId);
         template.setCreatorId(access.currentUser().getId());
+        template.setScope(PERSONAL_SCOPE);
+        template.setShared(false);
         template.setName(request.name().trim());
         template.setTitle(request.title().trim());
         // Markdown 原文需保持用户书写的换行和缩进，不能像标题一样统一 trim。
@@ -119,6 +130,8 @@ public class BugTemplateService {
         BugTemplate template = new BugTemplate();
         template.setWorkspaceId(sourceBug.getWorkspaceId());
         template.setCreatorId(creatorId);
+        template.setScope(PERSONAL_SCOPE);
+        template.setShared(false);
         template.setName(request.name().trim());
         // 使用请求中的内容而非整实体复制，确保模板字段白名单不会随着 Bug 字段增加而失效。
         template.setTitle(request.title().trim());
@@ -139,7 +152,7 @@ public class BugTemplateService {
      */
     @Transactional
     public BugTemplateVO update(Long templateId, UpdateBugTemplateRequest request) {
-        BugTemplate template = requireOwnedWritableTemplate(templateId);
+        BugTemplate template = requireManageableTemplate(templateId);
         template.setName(request.name().trim());
         template.setTitle(request.title().trim());
         template.setDescriptionMd(request.descriptionMd());
@@ -175,7 +188,7 @@ public class BugTemplateService {
      */
     @Transactional
     public void delete(Long templateId) {
-        BugTemplate template = requireOwnedWritableTemplate(templateId);
+        BugTemplate template = requireManageableTemplate(templateId);
         if (templates.deleteById(template.getId()) != 1) {
             // 记录可能在读取后被并发删除，统一按不存在处理，避免误报删除成功。
             throw templateNotFound();
@@ -183,22 +196,101 @@ public class BugTemplateService {
     }
 
     /**
-     * 按主键读取未删除模板，校验模板所属空间可写且创建人正是当前用户。
-     * 管理员经过工作空间校验后仍必须通过创建人比较，不能管理其他用户个人模板。
+     * 创建全局系统模板。系统模板不隶属任何工作空间，因此只依赖系统管理员角色校验。
+     *
+     * @param request 系统模板基础内容
+     * @return 已创建的系统模板
+     */
+    @Transactional
+    public BugTemplateVO createSystem(CreateBugTemplateRequest request) {
+        requireSystemAdmin();
+        BugTemplate template = new BugTemplate();
+        // 0 是系统模板的保留归属值，真实的全局性质由 scope 字段表达。
+        template.setWorkspaceId(0L);
+        template.setCreatorId(0L);
+        template.setScope(SYSTEM_SCOPE);
+        template.setShared(false);
+        template.setName(request.name().trim());
+        template.setTitle(request.title().trim());
+        template.setDescriptionMd(request.descriptionMd());
+        template.setPriority(request.priority());
+        template.setSortOrder(0);
+        templates.insert(template);
+        return BugTemplateVO.from(template, null);
+    }
+
+    /**
+     * 切换当前用户个人模板的共享状态。系统模板始终全局可见，因此不能使用此入口。
+     *
+     * @param templateId 目标个人模板主键
+     * @param request 新共享状态
+     * @return 更新后的模板
+     */
+    @Transactional
+    public BugTemplateVO updateSharing(Long templateId, UpdateBugTemplateSharingRequest request) {
+        BugTemplate template = requireOwnedPersonalWritableTemplate(templateId);
+        template.setShared(request.shared());
+        templates.updateById(template);
+        return toVO(template, sourceBugNos(List.of(template)));
+    }
+
+    /**
+     * 按主键读取未删除模板。系统模板只允许系统管理员管理；个人模板仍仅允许创建人管理。
      *
      * @param templateId 模板主键
      * @return 当前用户拥有且所在空间可写的模板
      */
-    private BugTemplate requireOwnedWritableTemplate(Long templateId) {
+    private BugTemplate requireManageableTemplate(Long templateId) {
         BugTemplate template = templates.selectById(templateId);
         if (template == null) {
             throw templateNotFound();
+        }
+        if (SYSTEM_SCOPE.equals(template.getScope())) {
+            requireSystemAdmin();
+            return template;
+        }
+        return requireOwnedPersonalWritableTemplate(template);
+    }
+
+    /**
+     * 按主键读取个人模板，校验模板所属空间可写且创建人正是当前用户。
+     * 系统管理员也不能代替用户管理个人模板，保证共享只扩大使用范围而不扩大管理权限。
+     *
+     * @param templateId 目标模板主键
+     * @return 当前用户拥有且所在空间可写的个人模板
+     */
+    private BugTemplate requireOwnedPersonalWritableTemplate(Long templateId) {
+        BugTemplate template = templates.selectById(templateId);
+        if (template == null) {
+            throw templateNotFound();
+        }
+        return requireOwnedPersonalWritableTemplate(template);
+    }
+
+    /**
+     * 复用已读取模板的个人归属校验，避免共享状态更新出现二次读取和校验分叉。
+     *
+     * @param template 已读取模板
+     * @return 已确认归属的个人模板
+     */
+    private BugTemplate requireOwnedPersonalWritableTemplate(BugTemplate template) {
+        if (!PERSONAL_SCOPE.equals(template.getScope())) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, 40301, "系统模板仅允许系统管理员管理");
         }
         WorkspaceAccess access = workspaces.requireWritableMemberForUpdate(template.getWorkspaceId());
         if (!Objects.equals(template.getCreatorId(), access.currentUser().getId())) {
             throw new BusinessException(HttpStatus.FORBIDDEN, 40301, "无权操作其他用户的个人模板");
         }
         return template;
+    }
+
+    /**
+     * 校验当前登录用户为系统管理员，作为系统模板所有写操作的统一安全边界。
+     */
+    private void requireSystemAdmin() {
+        if (!workspaces.isSystemAdmin(workspaces.currentUser())) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, 40301, "仅系统管理员可以管理内置模板");
+        }
     }
 
     /**

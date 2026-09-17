@@ -94,6 +94,17 @@ const router = createRouter({
           meta: { requiresSystemAdmin: true },
         },
         {
+          path: 'bug-templates',
+          name: 'bug-templates',
+          component: () => import('@/features/bug/BugTemplateManager.vue'),
+          // 模板管理同时服务普通成员和系统管理员，路由层注入当前权限以保证页面操作入口准确。
+          props: (route) => ({
+            workspaceId: Number(route.params.workspaceId),
+            currentUserId: useAuthStore().user?.id ?? null,
+            isSystemAdmin: useAuthStore().user?.systemRole === 'SYSTEM_ADMIN',
+          }),
+        },
+        {
           path: 'bugs/new',
           name: 'bug-create',
           component: () => import('@/features/bug/BugCreateView.vue'),

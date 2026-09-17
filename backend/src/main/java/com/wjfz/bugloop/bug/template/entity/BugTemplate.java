@@ -1,6 +1,6 @@
 /**
- * 本文件映射 bug_template 表，保存用户在工作空间内创建的 Bug 个人模板。
- * 模板只承载创建 Bug 时可复用的基础字段，工作空间隔离和创建人可见性由后续模板服务统一校验。
+ * 本文件映射 bug_template 表，保存数据库内置模板与用户在工作空间内创建的个人模板。
+ * 模板只承载创建 Bug 时可复用的基础字段，范围、共享状态和管理权限由模板服务统一校验。
  */
 package com.wjfz.bugloop.bug.template.entity;
 
@@ -27,8 +27,14 @@ public class BugTemplate {
     // 模板所属工作空间 ID，与创建人 ID 共同构成数据隔离边界。
     private Long workspaceId;
 
-    // 模板创建人用户 ID，个人模板仅允许该用户查看和管理。
+    // 模板创建人用户 ID，个人模板仅创建人可管理；系统模板使用内部保留值 0。
     private Long creatorId;
+
+    // 模板范围：SYSTEM 表示全局内置模板，PERSONAL 表示工作空间个人模板。
+    private String scope;
+
+    // 个人模板是否已主动共享给同工作空间成员；系统模板固定为 false。
+    private Boolean shared;
 
     // 模板列表中展示和选择的名称。
     private String name;
@@ -82,6 +88,22 @@ public class BugTemplate {
 
     public void setCreatorId(Long creatorId) {
         this.creatorId = creatorId;
+    }
+
+    public String getScope() {
+        return scope;
+    }
+
+    public void setScope(String scope) {
+        this.scope = scope;
+    }
+
+    public Boolean getShared() {
+        return shared;
+    }
+
+    public void setShared(Boolean shared) {
+        this.shared = shared;
     }
 
     public String getName() {

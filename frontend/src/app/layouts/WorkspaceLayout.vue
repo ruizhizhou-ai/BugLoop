@@ -18,7 +18,16 @@ import { useWorkspaceStore } from '@/features/workspace/workspaceStore'
 
 interface NavigationItem {
   label: string
-  icon: 'home' | 'box' | 'bugs' | 'submitted' | 'assigned' | 'acceptance' | 'users' | 'settings'
+  icon:
+    | 'home'
+    | 'box'
+    | 'bugs'
+    | 'submitted'
+    | 'assigned'
+    | 'acceptance'
+    | 'users'
+    | 'settings'
+    | 'edit'
   routeName: string
 }
 
@@ -59,8 +68,18 @@ const manageNavigation: NavigationItem[] = [
 ]
 
 const visibleManageNavigation = computed<NavigationItem[]>(() => {
-  if (auth.user?.systemRole !== 'SYSTEM_ADMIN') return manageNavigation
-  return [...manageNavigation, { label: '用户管理', icon: 'users', routeName: 'system-users' }]
+  const templateManagement: NavigationItem = {
+    label: '模板管理',
+    icon: 'edit',
+    routeName: 'bug-templates',
+  }
+  // 系统管理员的模板管理紧随用户管理；普通成员没有用户管理入口，仍可在管理区维护个人模板。
+  if (auth.user?.systemRole !== 'SYSTEM_ADMIN') return [...manageNavigation, templateManagement]
+  return [
+    ...manageNavigation,
+    { label: '用户管理', icon: 'users', routeName: 'system-users' },
+    templateManagement,
+  ]
 })
 
 onMounted(() => {

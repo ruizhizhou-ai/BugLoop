@@ -1,4 +1,4 @@
-<!-- 本文件实现个人模板管理弹窗：展示我的模板与内置模板，个人模板可新建、编辑、删除。 -->
+<!-- 本文件提供模板管理页面：按类型筛选数据库模板，用户维护个人模板和共享开关，系统管理员额外维护系统模板。 -->
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import {
@@ -11,6 +11,7 @@ import {
   ElOption,
   ElPopconfirm,
   ElSelect,
+  ElSwitch,
   ElTag,
 } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -24,53 +25,63 @@ import 'element-plus/es/components/option/style/css'
 import 'element-plus/es/components/popconfirm/style/css'
 import 'element-plus/es/components/popper/style/css'
 import 'element-plus/es/components/select/style/css'
+import 'element-plus/es/components/switch/style/css'
 import 'element-plus/es/components/tag/style/css'
 import { MdEditor } from 'md-editor-v3'
 import 'md-editor-v3/lib/style.css'
-
 import { BUG_PRIORITY_OPTIONS, PRIORITY_META, formatDateTime } from './bugMeta'
-import { SYSTEM_BUG_TEMPLATES } from './bugTemplates'
 import {
   createBugTemplate,
+  createSystemBugTemplate,
   deleteBugTemplate,
   listBugTemplates,
-  toPersonalBugTemplateViewModel,
-  toSystemBugTemplateViewModel,
   updateBugTemplate,
+  updateBugTemplateSharing,
 } from './bugTemplateApi'
-import type { BugTemplateViewModel, CreateBugTemplateRequest } from './bugTemplateApi'
+import type { BugTemplate, CreateBugTemplateRequest, TemplateScope } from './bugTemplateApi'
 import { isApiError } from '@/shared/api/types'
 
 interface BugTemplateManagerProps {
-  modelValue: boolean
-  /** 个人模板所属工作空间，新建和查询都以该空间为边界。 */
+  /** 当前工作空间决定个人模板的读取、新建和共享范围。 */
   workspaceId: number
+  /** 当前登录用户，用于将自己和他人共享的个人模板分开，并限制管理入口。 */
+  currentUserId?: number | null
+  /** 系统管理员可新建、编辑和删除全局系统模板。 */
+  isSystemAdmin?: boolean
 }
 
-const props = defineProps<BugTemplateManagerProps>()
-const emit = defineEmits<{
-  'update:modelValue': [value: boolean]
-  /** 个人模板发生增删改后通知调用页刷新模板列表。 */
-  changed: []
-}>()
-
-const visible = computed({
-  get: () => props.modelValue,
-  set: (value: boolean) => emit('update:modelValue', value),
+const props = withDefaults(defineProps<BugTemplateManagerProps>(), {
+  currentUserId: null,
+  isSystemAdmin: false,
 })
-// 内置模板来自前端静态配置，不随工作空间变化，只在初始化时转换一次。
-const systemTemplates = SYSTEM_BUG_TEMPLATES.map(toSystemBugTemplateViewModel)
-const personalTemplates = ref<BugTemplateViewModel[]>([])
+const emit = defineEmits<{ changed: [] }>()
+const templates = ref<BugTemplate[]>([])
 const loading = ref(false)
 const errorMessage = ref('')
 const deletingId = ref<number | null>(null)
+const sharingId = ref<number | null>(null)
+type TemplateCategory = 'SYSTEM' | 'PERSONAL' | 'SHARED'
+const selectedCategory = ref<TemplateCategory>('PERSONAL')
+const systemTemplates = computed(() =>
+  templates.value.filter((template) => template.scope === 'SYSTEM'),
+)
+const personalTemplates = computed(() =>
+  templates.value.filter(
+    (template) => template.scope === 'PERSONAL' && template.creatorId === props.currentUserId,
+  ),
+)
+const sharedTemplates = computed(() =>
+  templates.value.filter(
+    (template) => template.scope === 'PERSONAL' && template.creatorId !== props.currentUserId,
+  ),
+)
 
 const editorVisible = ref(false)
-const editorMode = ref<'create' | 'edit'>('create')
+const editorMode = ref<'create-personal' | 'create-system' | 'edit'>('create-personal')
+const editorScope = ref<TemplateScope>('PERSONAL')
 const editorFormRef = ref<FormInstance>()
 const editorSubmitting = ref(false)
 const editorError = ref('')
-// 编辑必须回传原排序值：更新接口不允许省略，页面也不提供排序入口。
 const editorTemplateId = ref<number | null>(null)
 const editorSortOrder = ref(0)
 const editorForm = reactive<CreateBugTemplateRequest>({
@@ -79,7 +90,6 @@ const editorForm = reactive<CreateBugTemplateRequest>({
   descriptionMd: '',
   priority: 'P2',
 })
-
 const editorRules: FormRules = {
   name: [
     { required: true, whitespace: true, message: '请输入模板名称', trigger: 'blur' },
@@ -91,57 +101,85 @@ const editorRules: FormRules = {
   ],
   descriptionMd: [
     {
-      validator: (_rule, value, callback) => {
-        if (!String(value ?? '').trim()) {
-          callback(new Error('请输入详细说明'))
-          return
-        }
-        callback()
-      },
+      validator: (_rule, value, callback) =>
+        !String(value ?? '').trim() ? callback(new Error('请输入详细说明')) : callback(),
       trigger: 'blur',
     },
   ],
 }
 
-/** 打开弹窗或切换工作空间时重新拉取列表，不能复用上一个空间的模板。 */
+/** 进入页面或切换工作空间时重新读取数据库，防止显示其他空间的个人或共享模板。 */
 watch(
-  () => (props.modelValue ? props.workspaceId : null),
+  () => props.workspaceId,
   (workspaceId) => {
-    if (workspaceId !== null) {
-      void loadTemplates()
-    }
+    if (workspaceId > 0) void loadTemplates()
   },
   { immediate: true },
 )
 
-/** 只读取当前用户在当前工作空间的个人模板，失败提示保留在弹窗内。 */
+/** 数据库接口已按服务端权限过滤，前端仅做范围和创建人分组。 */
 async function loadTemplates(): Promise<void> {
   loading.value = true
   errorMessage.value = ''
   try {
-    personalTemplates.value = (await listBugTemplates(props.workspaceId))
-      .map(toPersonalBugTemplateViewModel)
-      .sort((left, right) => left.sortOrder - right.sortOrder)
+    templates.value = (await listBugTemplates(props.workspaceId)).sort(
+      (left, right) => left.sortOrder - right.sortOrder,
+    )
   } catch (error) {
-    errorMessage.value = isApiError(error) ? error.message : '加载我的模板失败，请稍后重试'
+    errorMessage.value = isApiError(error) ? error.message : '加载模板失败，请稍后重试'
   } finally {
     loading.value = false
   }
 }
 
-/** 来源列只展示业务编号；手工创建的模板没有来源 Bug。 */
-function sourceLabel(template: BugTemplateViewModel): string {
+/** 来源列只展示业务编号；系统与手工创建模板均没有来源 Bug。 */
+function sourceLabel(template: BugTemplate): string {
   return template.sourceBugNo ? `基于 ${template.sourceBugNo}` : '手工创建'
 }
-
 /** 模板列表按天展示更新时间，避免和管理操作的时间精度混淆。 */
-function updatedDate(template: BugTemplateViewModel): string {
+function updatedDate(template: BugTemplate): string {
   return formatDateTime(template.updatedAt).slice(0, 10)
 }
 
-/** 新建入口使用空白表单，不复用上一次编辑的内容。 */
-function openCreateEditor(): void {
-  editorMode.value = 'create'
+/** 将下拉框选中的类型映射为对应列表，确保页面每次仅渲染一类模板。 */
+const selectedTemplates = computed(() => {
+  if (selectedCategory.value === 'SYSTEM') return systemTemplates.value
+  if (selectedCategory.value === 'SHARED') return sharedTemplates.value
+  return personalTemplates.value
+})
+/** 根据选中类型提供准确的标题，避免不同权限下出现模糊的模板归属描述。 */
+const selectedCategoryTitle = computed(() => {
+  if (selectedCategory.value === 'SYSTEM') return '系统模板'
+  if (selectedCategory.value === 'SHARED') return '共享模板'
+  return '我的模板'
+})
+/** 当前类型为空时的提示需区分可创建和只读场景，帮助用户理解下一步操作。 */
+const selectedEmptyHint = computed(() => {
+  if (selectedCategory.value === 'SYSTEM') return '暂无系统模板。'
+  if (selectedCategory.value === 'SHARED') return '暂无其他成员共享的模板。'
+  return '暂无个人模板，可新建模板或在 Bug 详情页把现有 Bug 存为模板。'
+})
+/** 共享模板来自其他成员，仅用于创建 Bug，不能在当前页面修改。 */
+const canCreateSelectedCategory = computed(
+  () =>
+    selectedCategory.value === 'PERSONAL' ||
+    (selectedCategory.value === 'SYSTEM' && props.isSystemAdmin),
+)
+/** 选中系统模板时使用系统接口，其他可创建场景均创建个人模板。 */
+function createSelectedCategory(): void {
+  openCreateEditor(selectedCategory.value === 'SYSTEM' ? 'SYSTEM' : 'PERSONAL')
+}
+/** 统一判断行操作权限，页面隐藏入口只为减少误操作，服务端仍执行最终鉴权。 */
+function canManageTemplate(template: BugTemplate): boolean {
+  return template.scope === 'SYSTEM'
+    ? props.isSystemAdmin
+    : template.creatorId === props.currentUserId
+}
+
+/** 以空白表单打开个人或系统模板的新建入口，不复用上一次编辑内容。 */
+function openCreateEditor(scope: TemplateScope): void {
+  editorMode.value = scope === 'SYSTEM' ? 'create-system' : 'create-personal'
+  editorScope.value = scope
   editorTemplateId.value = null
   editorSortOrder.value = 0
   editorForm.name = ''
@@ -151,13 +189,15 @@ function openCreateEditor(): void {
   editorError.value = ''
   editorVisible.value = true
 }
-
-/** 编辑入口回填当前模板内容，归属和来源 Bug 不进入表单。 */
-function openEditEditor(template: BugTemplateViewModel): void {
-  if (template.scope !== 'PERSONAL' || typeof template.id !== 'number') {
+/** 编辑入口只对自己的个人模板及系统管理员可管理的系统模板开放。 */
+function openEditEditor(template: BugTemplate): void {
+  if (
+    (template.scope === 'PERSONAL' && template.creatorId !== props.currentUserId) ||
+    (template.scope === 'SYSTEM' && !props.isSystemAdmin)
+  )
     return
-  }
   editorMode.value = 'edit'
+  editorScope.value = template.scope
   editorTemplateId.value = template.id
   editorSortOrder.value = template.sortOrder
   editorForm.name = template.name
@@ -167,17 +207,9 @@ function openEditEditor(template: BugTemplateViewModel): void {
   editorError.value = ''
   editorVisible.value = true
 }
-
-/** 校验后按模式调用创建或更新接口，成功后刷新列表并通知调用页。 */
+/** 根据编辑范围调用对应接口；服务端仍会再次校验系统管理员和个人归属权限。 */
 async function handleSaveEditor(): Promise<void> {
-  if (!editorFormRef.value) {
-    return
-  }
-  const valid = await editorFormRef.value.validate().catch(() => false)
-  if (!valid) {
-    return
-  }
-
+  if (!editorFormRef.value || !(await editorFormRef.value.validate().catch(() => false))) return
   editorSubmitting.value = true
   editorError.value = ''
   const request: CreateBugTemplateRequest = {
@@ -187,14 +219,13 @@ async function handleSaveEditor(): Promise<void> {
     priority: editorForm.priority,
   }
   try {
-    if (editorMode.value === 'edit' && editorTemplateId.value !== null) {
+    if (editorMode.value === 'edit' && editorTemplateId.value !== null)
       await updateBugTemplate(editorTemplateId.value, {
         ...request,
         sortOrder: editorSortOrder.value,
       })
-    } else {
-      await createBugTemplate(props.workspaceId, request)
-    }
+    else if (editorScope.value === 'SYSTEM') await createSystemBugTemplate(request)
+    else await createBugTemplate(props.workspaceId, request)
     editorVisible.value = false
     await loadTemplates()
     emit('changed')
@@ -204,12 +235,23 @@ async function handleSaveEditor(): Promise<void> {
     editorSubmitting.value = false
   }
 }
-
-/** 删除个人模板；内置模板没有删除入口，后端也会拒绝越权删除。 */
-async function handleDelete(template: BugTemplateViewModel): Promise<void> {
-  if (typeof template.id !== 'number') {
-    return
+/** 个人模板仅创建人可切换共享，失败后刷新列表还原开关的真实状态。 */
+async function handleSharingChange(template: BugTemplate, shared: boolean): Promise<void> {
+  sharingId.value = template.id
+  errorMessage.value = ''
+  try {
+    await updateBugTemplateSharing(template.id, shared)
+    await loadTemplates()
+    emit('changed')
+  } catch (error) {
+    errorMessage.value = isApiError(error) ? error.message : '更新模板共享状态失败，请稍后重试'
+    await loadTemplates()
+  } finally {
+    sharingId.value = null
   }
+}
+/** 删除权限与编辑权限一致：个人模板仅创建人，系统模板仅系统管理员。 */
+async function handleDelete(template: BugTemplate): Promise<void> {
   deletingId.value = template.id
   errorMessage.value = ''
   try {
@@ -225,7 +267,23 @@ async function handleDelete(template: BugTemplateViewModel): Promise<void> {
 </script>
 
 <template>
-  <el-dialog v-model="visible" title="模板管理" width="min(94vw, 720px)" append-to-body>
+  <main class="template-manager">
+    <header class="template-manager__page-header">
+      <div>
+        <p class="template-manager__eyebrow">工作空间配置</p>
+        <h2>模板管理</h2>
+        <p>按类型查看模板，数量增加后也能快速定位并维护需要的内容。</p>
+      </div>
+      <label class="template-manager__filter">
+        <span>模板类型</span>
+        <el-select v-model="selectedCategory" data-template-scope-select aria-label="模板类型">
+          <el-option label="我的模板" value="PERSONAL" />
+          <el-option label="共享模板" value="SHARED" />
+          <el-option label="系统模板" value="SYSTEM" />
+        </el-select>
+      </label>
+    </header>
+
     <el-alert
       v-if="errorMessage"
       class="template-manager__alert"
@@ -235,83 +293,81 @@ async function handleDelete(template: BugTemplateViewModel): Promise<void> {
       show-icon
       @close="errorMessage = ''"
     />
-
-    <section class="template-manager__section" aria-labelledby="personal-templates">
+    <section class="template-manager__section" aria-live="polite">
       <header class="template-manager__header">
-        <h3 id="personal-templates">
-          我的模板 <span>{{ personalTemplates.length }}</span>
+        <h3>
+          {{ selectedCategoryTitle }} <span>{{ selectedTemplates.length }}</span>
         </h3>
-        <el-button type="primary" @click="openCreateEditor">新建模板</el-button>
+        <el-button v-if="canCreateSelectedCategory" type="primary" @click="createSelectedCategory">
+          {{ selectedCategory === 'SYSTEM' ? '新建系统模板' : '新建模板' }}
+        </el-button>
       </header>
-
       <p v-if="loading" class="template-manager__hint">加载中…</p>
-      <p v-else-if="!personalTemplates.length" class="template-manager__hint">
-        暂无个人模板，可新建模板或在 Bug 详情页把现有 Bug 存为模板。
+      <p v-else-if="!selectedTemplates.length" class="template-manager__hint">
+        {{ selectedEmptyHint }}
       </p>
       <ul v-else class="template-list">
-        <li v-for="template in personalTemplates" :key="template.id" class="template-row">
+        <li v-for="template in selectedTemplates" :key="template.id" class="template-row">
           <div class="template-row__main">
             <p class="template-row__title">
-              <el-tag size="small" type="primary" effect="plain">我的</el-tag>
-              <strong>{{ template.name }}</strong>
+              <el-tag
+                size="small"
+                :type="
+                  template.scope === 'SYSTEM'
+                    ? 'info'
+                    : template.creatorId === currentUserId
+                      ? 'primary'
+                      : 'success'
+                "
+                effect="plain"
+                >{{
+                  template.scope === 'SYSTEM'
+                    ? '系统'
+                    : template.creatorId === currentUserId
+                      ? '我的'
+                      : '共享'
+                }}</el-tag
+              ><strong>{{ template.name }}</strong>
             </p>
             <p class="template-row__meta">
-              <el-tag size="small" :type="PRIORITY_META[template.priority].tag" effect="plain">
-                {{ PRIORITY_META[template.priority].label }}
-              </el-tag>
-              <span>{{ sourceLabel(template) }}</span>
-              <span>更新于 {{ updatedDate(template) }}</span>
+              <el-tag size="small" :type="PRIORITY_META[template.priority].tag" effect="plain">{{
+                PRIORITY_META[template.priority].label
+              }}</el-tag
+              ><span v-if="template.scope === 'SYSTEM'">{{
+                isSystemAdmin ? '系统管理员可维护' : '全员可使用'
+              }}</span
+              ><span v-else>{{ sourceLabel(template) }}</span
+              ><span v-if="template.scope !== 'SYSTEM'">更新于 {{ updatedDate(template) }}</span>
             </p>
           </div>
-          <div class="template-row__actions">
-            <el-button link type="primary" @click="openEditEditor(template)">编辑</el-button>
-            <el-popconfirm
+          <div v-if="canManageTemplate(template)" class="template-row__actions">
+            <span v-if="template.scope === 'PERSONAL'" class="template-row__sharing"
+              >共享<el-switch
+                :model-value="template.shared"
+                :loading="sharingId === template.id"
+                @change="handleSharingChange(template, Boolean($event))" /></span
+            ><el-button link type="primary" @click="openEditEditor(template)">编辑</el-button
+            ><el-popconfirm
               title="删除后不可恢复，确认删除该模板吗？"
               confirm-button-text="删除"
               cancel-button-text="取消"
               @confirm="handleDelete(template)"
+              ><template #reference
+                ><el-button link type="danger" :loading="deletingId === template.id"
+                  >删除</el-button
+                ></template
+              ></el-popconfirm
             >
-              <template #reference>
-                <el-button link type="danger" :loading="deletingId === template.id">删除</el-button>
-              </template>
-            </el-popconfirm>
           </div>
         </li>
       </ul>
     </section>
-
-    <section class="template-manager__section" aria-labelledby="system-templates">
-      <header class="template-manager__header">
-        <h3 id="system-templates">
-          内置模板 <span>{{ systemTemplates.length }}</span>
-        </h3>
-      </header>
-      <ul class="template-list">
-        <li v-for="template in systemTemplates" :key="template.id" class="template-row">
-          <div class="template-row__main">
-            <p class="template-row__title">
-              <el-tag size="small" type="info" effect="plain">内置</el-tag>
-              <strong>{{ template.name }}</strong>
-            </p>
-            <p class="template-row__meta">
-              <el-tag size="small" :type="PRIORITY_META[template.priority].tag" effect="plain">
-                {{ PRIORITY_META[template.priority].label }}
-              </el-tag>
-              <span>系统内置，不支持编辑</span>
-            </p>
-          </div>
-        </li>
-      </ul>
-    </section>
-
-    <template #footer>
-      <el-button @click="visible = false">关闭</el-button>
-    </template>
-  </el-dialog>
-
+  </main>
   <el-dialog
     v-model="editorVisible"
-    :title="editorMode === 'edit' ? '编辑模板' : '新建模板'"
+    :title="
+      editorMode === 'edit' ? '编辑模板' : editorScope === 'SYSTEM' ? '新建系统模板' : '新建模板'
+    "
     width="min(92vw, 860px)"
     append-to-body
   >
@@ -330,147 +386,199 @@ async function handleDelete(template: BugTemplateViewModel): Promise<void> {
       :rules="editorRules"
       label-position="top"
       @submit.prevent="handleSaveEditor"
-    >
-      <el-form-item label="模板名称" prop="name">
-        <el-input
+      ><el-form-item label="模板名称" prop="name"
+        ><el-input
           v-model="editorForm.name"
           maxlength="100"
           show-word-limit
-          placeholder="例如：登录失败排查模板"
-        />
-      </el-form-item>
-      <el-form-item label="标题" prop="title">
-        <el-input v-model="editorForm.title" maxlength="200" show-word-limit />
-      </el-form-item>
-      <el-form-item label="详细说明（Markdown）" prop="descriptionMd">
-        <md-editor v-model="editorForm.descriptionMd" />
-      </el-form-item>
-      <el-form-item label="优先级" prop="priority">
-        <el-select v-model="editorForm.priority">
-          <el-option
+          placeholder="例如：登录失败排查模板" /></el-form-item
+      ><el-form-item label="标题" prop="title"
+        ><el-input v-model="editorForm.title" maxlength="200" show-word-limit /></el-form-item
+      ><el-form-item label="详细说明（Markdown）" prop="descriptionMd"
+        ><md-editor v-model="editorForm.descriptionMd" /></el-form-item
+      ><el-form-item label="优先级" prop="priority"
+        ><el-select v-model="editorForm.priority"
+          ><el-option
             v-for="option in BUG_PRIORITY_OPTIONS"
             :key="option.value"
             :label="option.label"
-            :value="option.value"
-          />
-        </el-select>
-      </el-form-item>
+            :value="option.value" /></el-select
+      ></el-form-item>
       <p class="template-manager__note">
-        模板只保存模板名称、标题、详细说明和优先级；编辑不会改变模板归属和来源 Bug。
-      </p>
-    </el-form>
-    <template #footer>
-      <el-button :disabled="editorSubmitting" @click="editorVisible = false">取消</el-button>
-      <el-button type="primary" :loading="editorSubmitting" @click="handleSaveEditor"
+        模板只保存模板名称、标题、详细说明和优先级；共享开关仅适用于个人模板。
+      </p></el-form
+    >
+    <template #footer
+      ><el-button :disabled="editorSubmitting" @click="editorVisible = false">取消</el-button
+      ><el-button type="primary" :loading="editorSubmitting" @click="handleSaveEditor"
         >保存</el-button
-      >
-    </template>
+      ></template
+    >
   </el-dialog>
 </template>
 
 <style scoped>
+.template-manager {
+  width: min(100%, 1040px);
+  margin: 0 auto;
+}
+.template-manager__page-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 25px 28px;
+  margin-bottom: 18px;
+  background: linear-gradient(135deg, rgb(49 140 255 / 10%), transparent 52%), var(--bl-surface);
+  border: 1px solid var(--bl-border);
+  border-radius: 14px;
+}
+.template-manager__eyebrow,
+.template-manager__page-header h2,
+.template-manager__page-header p {
+  margin: 0;
+}
+.template-manager__eyebrow {
+  margin-bottom: 7px;
+  color: var(--bl-primary);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+}
+.template-manager__page-header h2 {
+  color: var(--bl-text);
+  font-size: 25px;
+  line-height: 1.25;
+}
+.template-manager__page-header p:not(.template-manager__eyebrow) {
+  margin-top: 9px;
+  color: var(--bl-muted);
+  font-size: 14px;
+}
+.template-manager__filter {
+  display: grid;
+  width: 238px;
+  flex: 0 0 auto;
+  gap: 7px;
+  color: var(--bl-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
 .template-manager__alert {
   margin-bottom: 16px;
 }
-
-.template-manager__section + .template-manager__section {
-  margin-top: 22px;
-  padding-top: 18px;
-  border-top: 1px solid var(--bl-border);
+.template-manager__section {
+  padding: 22px 26px;
+  background: var(--bl-surface);
+  border: 1px solid var(--bl-border);
+  border-radius: 14px;
 }
-
-.template-manager__header {
+.template-manager__header,
+.template-row,
+.template-row__title,
+.template-row__meta,
+.template-row__actions,
+.template-row__sharing {
   display: flex;
   align-items: center;
+}
+.template-manager__header {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
 }
-
-.template-manager__header h3 {
+.template-manager__header h3,
+.template-row__title,
+.template-row__meta,
+.template-manager__hint,
+.template-manager__note {
   margin: 0;
+}
+.template-manager__header h3,
+.template-row__title strong {
   color: var(--bl-text);
+}
+.template-manager__header h3 {
   font-size: 15px;
 }
-
-.template-manager__header h3 span {
-  margin-left: 4px;
+.template-manager__header h3 span,
+.template-row__meta,
+.template-manager__hint,
+.template-manager__note {
   color: var(--bl-muted);
   font-size: 12px;
   font-weight: 400;
 }
-
-.template-manager__hint {
-  margin: 0;
-  color: var(--bl-muted);
-  font-size: 13px;
+.template-manager__hint,
+.template-manager__note {
   line-height: 1.7;
 }
-
-.template-manager__note {
-  margin: 0;
-  color: var(--bl-muted);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
 .template-list {
   padding: 0;
   margin: 0;
   list-style: none;
 }
-
 .template-row {
-  display: flex;
-  align-items: center;
   gap: 12px;
-  padding: 12px 0;
+  padding: 15px 4px;
   border-bottom: 1px solid var(--bl-border);
 }
-
-.template-row:last-child {
-  border-bottom: 0;
-  padding-bottom: 0;
+.template-row:hover {
+  background: color-mix(in srgb, var(--bl-primary) 4%, transparent);
 }
-
+.template-row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
 .template-row__main {
   display: grid;
   min-width: 0;
   gap: 6px;
 }
-
 .template-row__title {
-  display: flex;
-  align-items: center;
   gap: 8px;
-  margin: 0;
   min-width: 0;
 }
-
 .template-row__title strong {
-  min-width: 0;
   overflow: hidden;
-  color: var(--bl-text);
   font-size: 14px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
 .template-row__meta {
-  display: flex;
-  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 0;
+}
+.template-row__actions {
+  gap: 4px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.template-row__sharing {
+  gap: 6px;
   color: var(--bl-muted);
   font-size: 12px;
 }
-
-.template-row__actions {
-  display: flex;
-  align-items: center;
-  margin-left: auto;
-  white-space: nowrap;
+@media (max-width: 680px) {
+  .template-manager__page-header {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 21px;
+  }
+  .template-manager__filter {
+    width: 100%;
+  }
+  .template-manager__section {
+    padding: 18px;
+  }
+  .template-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .template-row__actions {
+    width: 100%;
+    margin-left: 0;
+  }
 }
 </style>
