@@ -21,3 +21,6 @@ frontend/*.tsbuildinfo
 
 # 日志文件
 *.log
+
+# pi agent 相关文件
+pi-session-2026-09-16T16-01-33-920Z_01a0aaf3-b6e0-7020-9fe7-2d23dff473dc.html
